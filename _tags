@@ -1,0 +1,26 @@
+# OASIS_START
+# DO NOT EDIT (digest: 4d4f3fdfcfff54d6ccccffe798cd3aa4)
+# Ignore VCS directories, you can use the same kind of rule outside 
+# OASIS_START/STOP if you want to exclude directories that contains 
+# useless stuff for the build process
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Library websocket
+"lib/websocket.cmxs": use_websocket
+<lib/*.ml{,i}>: pkg_lwt
+<lib/*.ml{,i}>: pkg_lwt.syntax
+<lib/*.ml{,i}>: pkg_bitstring
+<lib/*.ml{,i}>: pkg_bitstring.syntax
+<lib/*.ml{,i}>: pkg_cryptokit
+<lib/*.ml{,i}>: pkg_cohttp.lwt
+# OASIS_STOP
+<lib/*>: syntax_camlp4o, pkg_lwt.syntax, pkg_bitstring.syntax
+true: annot

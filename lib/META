@@ -1,0 +1,12 @@
+# OASIS_START
+# DO NOT EDIT (digest: 869e02f9ec8a08b63375afb907094a85)
+version = "0.1"
+description = "Websocket library for Lwt"
+requires = "lwt lwt.syntax bitstring bitstring.syntax cryptokit cohttp.lwt"
+archive(byte) = "websocket.cma"
+archive(byte, plugin) = "websocket.cma"
+archive(native) = "websocket.cmxa"
+archive(native, plugin) = "websocket.cmxs"
+exists_if = "websocket.cma"
+# OASIS_STOP
+
