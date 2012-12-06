@@ -207,9 +207,12 @@ let with_connection uri f =
   lwt stream_in, push_out = open_connection uri in
   f (stream_in, push_out)
 
-let establish_server ?buffer_size ?backlog sockaddr f =
+let establish_server ?setup_socket ?buffer_size ?backlog sockaddr f =
   let stream_in, push_in   = Lwt_stream.create ()
   and stream_out, push_out = Lwt_stream.create () in
+  let setup_socket = Opt.default
+    (fun fd -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true)
+    setup_socket in
 
   let server_fun (ic,oc) =
     lwt request = Request.read ic >>=
@@ -233,7 +236,9 @@ let establish_server ?buffer_size ?backlog sockaddr f =
       ["Upgrade", "websocket";
        "Connection", "Upgrade";
        "Sec-WebSocket-Accept", hash] in
-    let response = Response.make ~status:`Switching_protocols
+    let response = Response.make
+      ~status:`Switching_protocols
+      ~encoding:Transfer.Unknown
       ~headers:response_headers () in
     lwt () = Response.write (fun _ _ -> return ()) response oc
     in

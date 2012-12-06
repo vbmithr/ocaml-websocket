@@ -29,6 +29,11 @@
     close the underlying connection, causing fds to leak.
 *)
 
+val sockaddr_of_dns : string -> string -> Lwt_unix.sockaddr Lwt.t
+(** [sockaddr_of_dns hostname service] returns a sockaddr that
+    corresponds to the hostname and service (service can be the port
+    given as a string) provided as arguments. *)
+
 val open_connection : Uri.t -> (string Lwt_stream.t * (string option -> unit)) Lwt.t
 (** [open_connection uri] will open a connection to the given uri, and
     return a stream and a push function that can be used to send and
@@ -42,6 +47,7 @@ val with_connection : Uri.t ->
     stream and a push function as arguments. *)
 
 val establish_server :
+  ?setup_socket:(Lwt_unix.file_descr -> unit) ->
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
