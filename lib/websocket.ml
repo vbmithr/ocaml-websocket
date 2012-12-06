@@ -181,18 +181,16 @@ let open_connection uri =
         | Some r -> return r
         | None -> raise_lwt Not_found in
       let headers = Response.headers response in
-      lwt () =
-        (assert_lwt Response.version response = `HTTP_1_1) >>
-          (assert_lwt Response.status response = `Switching_protocols) >>
-          (assert_lwt Opt.map (fun str -> String.lowercase str)
-             $ Header.get headers "upgrade" = Some "websocket") >>
-          (assert_lwt Opt.map (fun str -> String.lowercase str)
-             $ Header.get headers "connection" = Some "upgrade") >>
-          (assert_lwt Header.get headers "sec-websocket-accept" =
-              Some (Base64.encode (CK.hash_string (CK.Hash.sha1 ())
-                                     (nonce ^ websocket_uuid))))
-      in
-      lwt () = Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) in
+      (assert_lwt Response.version response = `HTTP_1_1) >>
+      (assert_lwt Response.status response = `Switching_protocols) >>
+      (assert_lwt Opt.map (fun str -> String.lowercase str)
+         $ Header.get headers "upgrade" = Some "websocket") >>
+      (assert_lwt Opt.map (fun str -> String.lowercase str)
+         $ Header.get headers "connection" = Some "upgrade") >>
+      (assert_lwt Header.get headers "sec-websocket-accept" =
+          Some (Base64.encode (CK.hash_string (CK.Hash.sha1 ())
+                                 (nonce ^ websocket_uuid)))) >>
+      Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
       return (ic, oc)
     with exn ->
       Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
@@ -200,8 +198,8 @@ let open_connection uri =
   in
   lwt ic, oc = connect () in
   try_lwt
-    ignore_result $ join [read_frames ic push_in;
-                          write_frames ~masked:true stream_out oc];
+    ignore_result
+      (read_frames ic push_in <&> write_frames ~masked:true stream_out oc);
     return (stream_in, push_out)
   with exn -> Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
 

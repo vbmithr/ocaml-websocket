@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4d4f3fdfcfff54d6ccccffe798cd3aa4)
+# DO NOT EDIT (digest: 2cfb3be6d49e55d69f1cdcc9fbd5307a)
 # Ignore VCS directories, you can use the same kind of rule outside 
 # OASIS_START/STOP if you want to exclude directories that contains 
 # useless stuff for the build process
@@ -21,6 +21,22 @@
 <lib/*.ml{,i}>: pkg_bitstring.syntax
 <lib/*.ml{,i}>: pkg_cryptokit
 <lib/*.ml{,i}>: pkg_cohttp.lwt
+# Executable wscat
+<tests/wscat.{native,byte}>: use_websocket
+<tests/wscat.{native,byte}>: pkg_lwt
+<tests/wscat.{native,byte}>: pkg_lwt.syntax
+<tests/wscat.{native,byte}>: pkg_bitstring
+<tests/wscat.{native,byte}>: pkg_bitstring.syntax
+<tests/wscat.{native,byte}>: pkg_cryptokit
+<tests/wscat.{native,byte}>: pkg_cohttp.lwt
+<tests/*.ml{,i}>: use_websocket
+<tests/*.ml{,i}>: pkg_lwt
+<tests/*.ml{,i}>: pkg_lwt.syntax
+<tests/*.ml{,i}>: pkg_bitstring
+<tests/*.ml{,i}>: pkg_bitstring.syntax
+<tests/*.ml{,i}>: pkg_cryptokit
+<tests/*.ml{,i}>: pkg_cohttp.lwt
+<tests/wscat.{native,byte}>: custom
 # OASIS_STOP
 <lib/*>: syntax_camlp4o, pkg_lwt.syntax, pkg_bitstring.syntax
 true: annot

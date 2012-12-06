@@ -1,5 +1,5 @@
 (* OASIS_START *)
-(* DO NOT EDIT (digest: 3d3afa21a909223bbbf87b94df34a437) *)
+(* DO NOT EDIT (digest: 2170d686f55ebd3d4235c7692712f4bb) *)
 module OASISGettext = struct
 (* # 21 "/home/vb/.opam/system/build/oasis.0.3.0/src/oasis/OASISGettext.ml" *)
 
@@ -480,7 +480,7 @@ let package_default =
      MyOCamlbuildBase.lib_ocaml = [("websocket", ["lib"])];
      lib_c = [];
      flags = [];
-     includes = [];
+     includes = [("tests", ["lib"])];
      }
   ;;
 

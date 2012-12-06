@@ -1,5 +1,5 @@
 (* OASIS_START *)
-(* DO NOT EDIT (digest: 7cd9a119631670cfc372e8b76d6c9b94) *)
+(* DO NOT EDIT (digest: 7b9c7d0f3c66037c6042582599e9b8e4) *)
 This is the INSTALL file for the websocket distribution.
 
 This package uses OASIS to generate its build system. See section OASIS for
@@ -11,10 +11,10 @@ Dependencies
 In order to compile this package, you will need:
 * ocaml
 * findlib
-* lwt
-* bitstring
-* cryptokit
-* cohttp
+* lwt for library websocket
+* bitstring for library websocket
+* cryptokit for library websocket
+* cohttp for library websocket
 
 Installing
 ==========
