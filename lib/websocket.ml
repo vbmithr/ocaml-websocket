@@ -164,7 +164,7 @@ let open_connection uri =
   and stream_out, push_out = Lwt_stream.create () in
 
   let connect () =
-    let nonce = Base64.encode $ CK.Random.string CK.Random.secure_rng 2 in
+    let nonce = Base64.encode $ CK.Random.string CK.Random.secure_rng 16 in
     let headers =
       Header.of_list
         ["Upgrade"               , "websocket";

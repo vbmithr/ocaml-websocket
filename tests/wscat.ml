@@ -3,11 +3,11 @@ open Lwt
 let cat_fun (stream, push) =
   let rec read_fun () =
     Lwt_io.read_line Lwt_io.stdin
-    >>= fun str -> wrap1 push (Some str)
+    >>= fun str -> wrap (fun () -> push (Some str); push (Some ""))
     >>= read_fun in
   let rec write_fun () =
     Lwt_stream.next stream
-    >>= Lwt_io.printl
+    >>= (function "" -> Lwt_io.print "\n" | str -> Lwt_io.print str)
     >>= write_fun in
   read_fun () <&> write_fun ()
 
