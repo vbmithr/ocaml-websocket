@@ -29,19 +29,34 @@
     close the underlying connection, causing fds to leak.
 *)
 
+type opcode =
+  [ `Continuation
+  | `Text
+  | `Binary
+  | `Close
+  | `Ping
+  | `Pong
+  | `Ctrl of int
+  | `Nonctrl of int
+  ]
+(** Type representing websocket opcodes *)
+
+type frame = { opcode: opcode; final: bool; content: string }
+(** The type representing websocket frames *)
+
 val sockaddr_of_dns : string -> string -> Lwt_unix.sockaddr Lwt.t
 (** [sockaddr_of_dns hostname service] returns a sockaddr that
     corresponds to the hostname and service (service can be the port
     given as a string) provided as arguments. *)
 
-val open_connection : Uri.t -> (string Lwt_stream.t * (string option -> unit)) Lwt.t
+val open_connection : Uri.t -> (frame Lwt_stream.t * (frame option -> unit)) Lwt.t
 (** [open_connection uri] will open a connection to the given uri, and
     return a stream and a push function that can be used to send and
     receive websocket messages. The websocket messages are simply
     strings. *)
 
 val with_connection : Uri.t ->
-  (string Lwt_stream.t * (string option -> unit) -> 'a Lwt.t) -> 'a Lwt.t
+  (frame Lwt_stream.t * (frame option -> unit) -> 'a Lwt.t) -> 'a Lwt.t
 (** Same as above except for here you provide a function that will be
     in charge of communicating with the other end, and that takes a
     stream and a push function as arguments. *)
@@ -51,7 +66,7 @@ val establish_server :
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
-  (Uri.t -> string Lwt_stream.t * (string option -> unit) -> unit Lwt.t) ->
+  (Uri.t -> frame Lwt_stream.t * (frame option -> unit) -> unit Lwt.t) ->
   Lwt_io.server Lwt.t
 (** Function in the spirit of [Lwt_io.establish_server], except
     that the provided function takes a stream and a push function

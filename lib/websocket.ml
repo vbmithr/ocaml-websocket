@@ -21,7 +21,7 @@ open Cohttp_lwt_unix
 
 module CK = Cryptokit
 
-external ($)  : ('a -> 'b) -> 'a -> 'b = "%apply"
+external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
 
 exception Not_implemented
 
@@ -34,9 +34,11 @@ type opcode =
   | `Close
   | `Ping
   | `Pong
-  | `Ctrl
-  | `Nonctrl
+  | `Ctrl of int
+  | `Nonctrl of int
   ]
+
+type frame = { opcode : opcode; final : bool; content : string }
 
 let string_of_opcode = function
   | `Continuation -> "continuation frame"
@@ -45,8 +47,8 @@ let string_of_opcode = function
   | `Close        -> "close frame"
   | `Ping         -> "ping frame"
   | `Pong         -> "pong frame"
-  | `Ctrl         -> "other control frame"
-  | `Nonctrl      -> "other non-control frame"
+  | `Ctrl i       -> Printf.sprintf "control frame code %d" i
+  | `Nonctrl i    -> Printf.sprintf "non-control frame code %d" i
 
 let opcode_of_int i = match i land 0xf with
   | 0                     -> `Continuation
@@ -55,8 +57,8 @@ let opcode_of_int i = match i land 0xf with
   | 8                     -> `Close
   | 9                     -> `Ping
   | 10                    -> `Pong
-  | i when i > 2 && i < 8 -> `Nonctrl
-  | _                     -> `Ctrl
+  | i when i > 2 && i < 8 -> `Nonctrl i
+  | i                     -> `Ctrl i
 
 let int_of_opcode = function
   | `Continuation -> 0
@@ -65,7 +67,8 @@ let int_of_opcode = function
   | `Close        -> 8
   | `Ping         -> 9
   | `Pong         -> 10
-  | _             -> failwith "int_of_opcode: Invalid frame type"
+  | `Ctrl i       -> i
+  | `Nonctrl i    -> i
 
 let xor mask msg =
   for i = 0 to String.length msg - 1 do (* masking msg to send *)
@@ -77,48 +80,40 @@ let rec read_frames ic push =
   let hdr = String.create 2 in
   lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
   let hdr = Bitstring.bitstring_of_string hdr in
-  let fin, rsv1, rsv2, rsv3, opcode, masked, length =
+  let final, rsv1, rsv2, rsv3, opcode, masked, length =
     bitmatch hdr with
-      | { fin: 1; rsv1: 1; rsv2: 1; rsv3: 1;
+      | { final: 1; rsv1: 1; rsv2: 1; rsv3: 1;
           opcode: 4; masked: 1; length: 7 }
-        -> fin, rsv1, rsv2, rsv3, opcode, masked, length in
+        -> final, rsv1, rsv2, rsv3, opcode, masked, length in
   let opcode = opcode_of_int opcode in
   lwt payload_len = match length with
     | i when i < 126 -> return i
     | 126            -> Lwt_io.BE.read_int16 ic
     | 127            -> Lwt_io.BE.read_int64 ic >|= Int64.to_int
-    | _              -> failwith "Can never happen."
+    | _              -> exit 1
   in
-  let mask = String.create 2 in
-  lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 2
+  let mask = String.create 4 in
+  lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
     else return () in
-  let buf = String.create payload_len in
-  match opcode with
-    | `Text ->
-      Lwt_io.read_into_exactly ic buf 0 payload_len
-      >|= (fun () -> if masked then xor mask buf; push (Some buf))
-      >|= (fun () -> if fin then push (Some "")) >> read_frames ic push
+  let content = String.create payload_len in
+  lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
+  let () = if masked then xor mask content in
+  let () = push (Some { opcode; final; content }) in
+  read_frames ic push
 
-    | _ ->
-      Lwt_io.read_into_exactly ic buf 0 payload_len
-      >> Lwt_log.notice_f
-        "Not implemented: Opcode %d, message:\n%s\n%!"
-        (int_of_opcode opcode) buf
-      >> raise_lwt Not_implemented
-
-let write_frames ~masked stream oc =
-  let send_msg ~final ~opcode str =
+let rec write_frames ~masked stream oc =
+  let send_frame fr =
     let mask = CK.Random.string CK.Random.secure_rng 4 in
-    let len = String.length str in
-    let first_nibble = 8
-    and opcode = int_of_opcode `Text
-    and masked = true
-    and payload_len = match len with
+    let len = String.length fr.content in
+    let extensions = 0 in
+    let opcode = int_of_opcode fr.opcode in
+    let payload_len = match len with
       | n when n < 126      -> len
       | n when n < 1 lsl 16 -> 126
       | _                   -> 127 in
     let bitstring = Bitstring.string_of_bitstring $
-      BITSTRING {first_nibble: 4; opcode: 4; masked : 1; payload_len: 7} in
+      BITSTRING {fr.final: 1; extensions: 3;
+                 opcode: 4; masked : 1; payload_len: 7} in
     lwt () = Lwt_io.write oc bitstring in
     lwt () =
       (match len with
@@ -127,22 +122,10 @@ let write_frames ~masked stream oc =
         | n                     -> Lwt_io.BE.write_int64 oc $ Int64.of_int n)
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
-        >|= fun () -> xor mask str else return () in
-    lwt () = Lwt_io.write_from_exactly oc str 0 len in
+        >|= fun () -> xor mask fr.content else return () in
+    lwt () = Lwt_io.write_from_exactly oc fr.content 0 len in
     Lwt_io.flush oc in
-
-  (* Body of the function *)
-  let rec main_loop prev opcode =
-    lwt next = Lwt_stream.next stream in
-    match (prev, next) with
-      | "", ""     -> main_loop "" `Text
-      | prev, ""   -> send_msg ~final:true ~opcode prev
-        >> main_loop "" `Text
-      | "", next   -> main_loop next `Text
-      | prev, next -> send_msg ~final:false ~opcode prev
-        >> main_loop next `Continuation
-  in
-  main_loop "" `Text
+  Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
 
 let sockaddr_of_dns node service =
   let open Lwt_unix in
