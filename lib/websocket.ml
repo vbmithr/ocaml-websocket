@@ -23,6 +23,20 @@ module CK = Cryptokit
 
 external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
 
+module Opt = struct
+  let map f = function
+    | Some x -> Some(f x)
+    | None -> None
+
+  let default d = function
+    | Some x -> x
+    | None -> d
+
+  let unbox = function
+    | Some x -> x
+    | None -> raise Not_found
+end
+
 exception Not_implemented
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -90,7 +104,7 @@ let rec read_frames ic push =
     | i when i < 126 -> return i
     | 126            -> Lwt_io.BE.read_int16 ic
     | 127            -> Lwt_io.BE.read_int64 ic >|= Int64.to_int
-    | _              -> exit 1
+    | _              -> failwith "bug in module Bitstring"
   in
   let mask = String.create 4 in
   lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
