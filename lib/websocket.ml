@@ -21,7 +21,16 @@ open Cohttp_lwt_unix
 
 module CK = Cryptokit
 
+let base64_encode str =
+  let tr = CK.Base64.encode_compact_pad () in
+  CK.transform_string tr str
+
+let sha1sum str =
+  let hash = CK.Hash.sha1 () in
+  CK.hash_string hash str
+
 external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
+external (|>) : 'a -> ('a -> 'b) -> 'b = "%revapply"
 
 module Opt = struct
   let map f = function
@@ -161,7 +170,7 @@ let open_connection uri =
   and stream_out, push_out = Lwt_stream.create () in
 
   let connect () =
-    let nonce = Base64.encode $ CK.Random.string CK.Random.secure_rng 16 in
+    let nonce = base64_encode $ CK.Random.string CK.Random.secure_rng 16 in
     let headers =
       Header.of_list
         ["Upgrade"               , "websocket";
@@ -185,8 +194,7 @@ let open_connection uri =
       (assert_lwt Opt.map (fun str -> String.lowercase str)
          $ Header.get headers "connection" = Some "upgrade") >>
       (assert_lwt Header.get headers "sec-websocket-accept" =
-          Some (Base64.encode (CK.hash_string (CK.Hash.sha1 ())
-                                 (nonce ^ websocket_uuid)))) >>
+          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
       Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
       return (ic, oc)
     with exn ->
@@ -227,8 +235,7 @@ let establish_server ?setup_socket ?buffer_size ?backlog sockaddr f =
       (assert_lwt Opt.map (fun str -> String.lowercase str)
                     $ Header.get headers "connection" = Some "upgrade")
     in
-    let hash = Base64.encode
-      (CK.hash_string (CK.Hash.sha1 ()) (key ^ websocket_uuid)) in
+    let hash = key ^ websocket_uuid |> sha1sum |> base64_encode in
     let response_headers = Header.of_list
       ["Upgrade", "websocket";
        "Connection", "Upgrade";
