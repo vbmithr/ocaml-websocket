@@ -99,6 +99,24 @@ let xor mask msg =
       Char.code mask.[i mod 4] lxor Char.code msg.[i]
   done
 
+let read_be nbits ic =
+  let nbytes = nbits / 8 in
+  let str = String.create nbytes in
+  lwt () = Lwt_io.read_into_exactly ic str 0 nbytes in
+  let str = Bitstring.bitstring_of_string str in
+  return $
+    bitmatch str with | { intval : nbits } -> intval
+
+let write_be nbits oc intval =
+  BITSTRING { intval : nbits }
+      |> Bitstring.string_of_bitstring
+      |> Lwt_io.write oc
+
+let read_int16 = read_be 16
+let read_int64 = read_be 64
+let write_int16 = write_be 16
+let write_int64 = write_be 64
+
 let rec read_frames ic push =
   let hdr = String.create 2 in
   lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
@@ -109,11 +127,12 @@ let rec read_frames ic push =
           opcode: 4; masked: 1; length: 7 }
         -> final, rsv1, rsv2, rsv3, opcode, masked, length in
   let opcode = opcode_of_int opcode in
-  lwt payload_len = match length with
-    | i when i < 126 -> return i
-    | 126            -> Lwt_io.BE.read_int16 ic
-    | 127            -> Lwt_io.BE.read_int64 ic >|= Int64.to_int
-    | _              -> failwith "bug in module Bitstring"
+  lwt payload_len = (match length with
+    | i when i < 126 -> return $ Int64.of_int i
+    | 126            -> read_int16 ic
+    | 127            -> read_int64 ic
+    | _              -> raise_lwt (Failure "bug in module Bitstring"))
+      >|= Int64.to_int
   in
   let mask = String.create 4 in
   lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
@@ -141,8 +160,8 @@ let rec write_frames ~masked stream oc =
     lwt () =
       (match len with
         | n when n < 126        -> return ()
-        | n when n < (1 lsl 16) -> Lwt_io.BE.write_int16 oc n
-        | n                     -> Lwt_io.BE.write_int64 oc $ Int64.of_int n)
+        | n when n < (1 lsl 16) -> Int64.of_int n |> write_int16 oc
+        | n                     -> Int64.of_int n |> write_int64 oc)
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
         >|= fun () -> xor mask fr.content else return () in
