@@ -1,0 +1,14 @@
+name: websocket
+version: 0.1
+description:
+        Client and server websocket library for OCaml and Lwt
+licence: ISC
+authors: Vincent Bernardoff <vb@luminar.eu.org>
+obuild-ver: 1
+homepage: https://github.com/vbmithr/ocaml-websocket
+
+library websocket
+        modules: Websocket
+        src-dir: lib
+        build-deps: lwt.syntax lwt bitstring.syntax bitstring cryptokit cohttp.lwt
+        pp: camlp4o
