@@ -1,5 +1,0 @@
-(* OASIS_START *)
-(* DO NOT EDIT (digest: 6892232d8f21cfe984582aafed471db8) *)
-Authors of websocket
-Vincent Bernardoff
-(* OASIS_STOP *)
