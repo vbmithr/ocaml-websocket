@@ -10,7 +10,7 @@ BuildTools:  ocamlbuild
 Library websocket
   Path:       lib
   BuildDepends: lwt, lwt.syntax, bitstring, bitstring.syntax, cryptokit, cohttp.lwt
-  Modules: Websocket
+  Modules: Websocket, Lwt_io_ext
 
 Executable wscat
   Path:    tests

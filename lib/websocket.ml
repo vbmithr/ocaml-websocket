@@ -109,8 +109,8 @@ let read_be nbits ic =
 
 let write_be nbits oc intval =
   BITSTRING { intval : nbits }
-      |> Bitstring.string_of_bitstring
-      |> Lwt_io.write oc
+  |> Bitstring.string_of_bitstring
+  |> Lwt_io.write oc
 
 let read_int16 = read_be 16
 let read_int64 = read_be 64
@@ -199,7 +199,7 @@ let open_connection uri =
     let req = Request.make ~headers uri in
     lwt sockaddr = sockaddr_of_dns host (string_of_int port) in
     lwt ic, oc =
-      Lwt_io.open_connection ~setup_socket sockaddr in
+      Lwt_io_ext.open_connection ~setup_socket sockaddr in
     try_lwt
       lwt () = Request.write (fun _ _ -> return ()) req oc in
       lwt response = Response.read ic >>= function
@@ -209,11 +209,11 @@ let open_connection uri =
       (assert_lwt Response.version response = `HTTP_1_1) >>
       (assert_lwt Response.status response = `Switching_protocols) >>
       (assert_lwt Opt.map (fun str -> String.lowercase str)
-         $ Header.get headers "upgrade" = Some "websocket") >>
+       $ Header.get headers "upgrade" = Some "websocket") >>
       (assert_lwt Opt.map (fun str -> String.lowercase str)
-         $ Header.get headers "connection" = Some "upgrade") >>
+       $ Header.get headers "connection" = Some "upgrade") >>
       (assert_lwt Header.get headers "sec-websocket-accept" =
-          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
+         Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
       Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
       return (ic, oc)
     with exn ->
@@ -231,12 +231,9 @@ let with_connection uri f =
   lwt stream_in, push_out = open_connection uri in
   f (stream_in, push_out)
 
-let establish_server ?setup_socket ?buffer_size ?backlog sockaddr f =
+let establish_server ?buffer_size ?backlog sockaddr f =
   let stream_in, push_in   = Lwt_stream.create ()
   and stream_out, push_out = Lwt_stream.create () in
-  let setup_socket = Opt.default
-    (fun fd -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true)
-    setup_socket in
 
   let server_fun (ic,oc) =
     lwt request = Request.read ic >>=
@@ -269,5 +266,8 @@ let establish_server ?setup_socket ?buffer_size ?backlog sockaddr f =
           write_frames ~masked:false stream_out oc;
           f uri (stream_in, push_out)]
   in
-  Lwt_io.establish_server ~setup_socket ?buffer_size ?backlog sockaddr
+  Lwt_io_ext.establish_server
+    ~setup_server_socket:setup_socket
+    ~setup_clients_sockets:setup_socket
+    ?buffer_size ?backlog sockaddr
     (fun (ic,oc) -> ignore_result $ server_fun (ic,oc))

@@ -62,12 +62,11 @@ val with_connection : Uri.t ->
     stream and a push function as arguments. *)
 
 val establish_server :
-  ?setup_socket:(Lwt_unix.file_descr -> unit) ->
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
   (Uri.t -> frame Lwt_stream.t * (frame option -> unit) -> unit Lwt.t) ->
-  Lwt_io.server Lwt.t
+  Lwt_io_ext.server Lwt.t
 (** Function in the spirit of [Lwt_io.establish_server], except
     that the provided function takes a stream and a push function
     instead of two channels. Please refer to the [Lwt_io] doc for
