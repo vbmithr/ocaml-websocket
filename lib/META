@@ -1,4 +1,4 @@
-version = "0.1"
+version = "0.2"
 description = "Websocket library for Lwt"
 requires = "lwt lwt.syntax bitstring bitstring.syntax cryptokit cohttp.lwt"
 archive(byte) = "websocket.cma"
