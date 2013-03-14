@@ -1,38 +1,22 @@
-# OASIS_START
-# DO NOT EDIT (digest: bc1e05bfc8b39b664f29dae8dbd3ebbb)
+#OBUILDOPTS="--debug+"
+PACKAGE_NAME=websocket
 
-SETUP = ocaml setup.ml
+.PHONY: clean uninstall
 
-build: setup.data
-	$(SETUP) -build $(BUILDFLAGS)
+all: dist/setup/lib-$(PACKAGE_NAME)
 
-doc: setup.data build
-	$(SETUP) -doc $(DOCFLAGS)
+dist/setup:
+	obuild $(OBUILDOPTS) configure
 
-test: setup.data build
-	$(SETUP) -test $(TESTFLAGS)
+dist/setup/lib-$(PACKAGE_NAME): dist/setup
+	obuild $(OBUILDOPTS) build
 
-all: 
-	$(SETUP) -all $(ALLFLAGS)
+install: dist/setup/lib-$(PACKAGE_NAME)
+	ocamlfind remove $(PACKAGE_NAME)
+	ocamlfind install $(PACKAGE_NAME) dist/build/lib-$(PACKAGE_NAME)/$(PACKAGE_NAME).{cmi,cmx,cma,cmxa,o,a} lib/META
 
-install: setup.data
-	$(SETUP) -install $(INSTALLFLAGS)
+clean:
+	obuild clean
 
-uninstall: setup.data
-	$(SETUP) -uninstall $(UNINSTALLFLAGS)
-
-reinstall: setup.data
-	$(SETUP) -reinstall $(REINSTALLFLAGS)
-
-clean: 
-	$(SETUP) -clean $(CLEANFLAGS)
-
-distclean: 
-	$(SETUP) -distclean $(DISTCLEANFLAGS)
-
-setup.data:
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-.PHONY: build doc test all install uninstall reinstall clean distclean configure
-
-# OASIS_STOP
+uninstall:
+	ocamlfind remove $(PACKAGE_NAME)
