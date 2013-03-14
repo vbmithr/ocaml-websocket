@@ -1,0 +1,23 @@
+Websocket library for OCaml
+===========================
+
+Author: Vincent Bernardoff <vb@luminar.eu.org>
+Webpage: https://github.com/vbmithr/ocaml-websocket
+
+Dependencies:
+=============
+
+* obuild (for building)
+* lwt
+* bitstring
+* cohttp
+* cryptokit
+
+You can install those dependencies with OPAM:
+
+opam install --yes obuild lwt bitstring cryptokit cohttp
+
+Bugs:
+=====
+
+Please raise any issue on the github page
