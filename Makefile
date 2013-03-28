@@ -1,5 +1,6 @@
 #OBUILDOPTS="--debug+"
 PACKAGE_NAME=websocket
+SHELL=bash
 
 .PHONY: clean uninstall
 
