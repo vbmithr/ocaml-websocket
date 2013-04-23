@@ -10,7 +10,7 @@ homepage: https://github.com/vbmithr/ocaml-websocket
 library websocket
         modules: Websocket
         src-dir: lib
-        build-deps: lwt.syntax, lwt, bitstring.syntax, bitstring, cryptokit, cohttp.lwt
+        build-deps: lwt.syntax, lwt, bitstring.syntax, bitstring, cryptokit, cohttp.lwt, ocplib-endian
         pp: camlp4o
 
 executable wscat

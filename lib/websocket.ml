@@ -99,23 +99,25 @@ let xor mask msg =
       Char.code mask.[i mod 4] lxor Char.code msg.[i]
   done
 
-let read_be nbits ic =
-  let nbytes = nbits / 8 in
-  let str = String.create nbytes in
-  lwt () = Lwt_io.read_into_exactly ic str 0 nbytes in
-  let str = Bitstring.bitstring_of_string str in
-  return $
-    bitmatch str with | { intval : nbits } -> intval
+let read_int16 ic =
+  let buf = String.create 2 in
+  Lwt_io.read_into_exactly ic buf 0 2 >>
+    (return $ EndianString.BigEndian.get_int16 buf 0)
 
-let write_be nbits oc intval =
-  BITSTRING { intval : nbits }
-  |> Bitstring.string_of_bitstring
-  |> Lwt_io.write oc
+let read_int64 ic =
+  let buf = String.create 8 in
+  Lwt_io.read_into_exactly ic buf 0 8 >>
+    (return $ EndianString.BigEndian.get_int64 buf 0)
 
-let read_int16 = read_be 16
-let read_int64 = read_be 64
-let write_int16 = write_be 16
-let write_int64 = write_be 64
+let write_int16 oc v =
+  let buf = String.create 2 in
+  EndianString.BigEndian.set_int16 buf 0 v;
+  Lwt_io.write oc buf
+
+let write_int64 oc v =
+  let buf = String.create 8 in
+  EndianString.BigEndian.set_int64 buf 0 v;
+  Lwt_io.write oc buf
 
 let rec read_frames ic push =
   let hdr = String.create 2 in
@@ -129,7 +131,7 @@ let rec read_frames ic push =
   let opcode = opcode_of_int opcode in
   lwt payload_len = (match length with
     | i when i < 126 -> return $ Int64.of_int i
-    | 126            -> read_int16 ic
+    | 126            -> read_int16 ic >|= Int64.of_int
     | 127            -> read_int64 ic
     | _              -> raise_lwt (Failure "bug in module Bitstring"))
       >|= Int64.to_int
@@ -160,7 +162,7 @@ let rec write_frames ~masked stream oc =
     lwt () =
       (match len with
         | n when n < 126        -> return ()
-        | n when n < (1 lsl 16) -> Int64.of_int n |> write_int16 oc
+        | n when n < (1 lsl 16) -> write_int16 oc n
         | n                     -> Int64.of_int n |> write_int64 oc)
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
