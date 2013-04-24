@@ -61,7 +61,10 @@ type opcode =
   | `Nonctrl of int
   ]
 
-type frame = { opcode : opcode; final : bool; content : string }
+type frame = { opcode : opcode;
+               extension: int;
+               final : bool;
+               content : string }
 
 let string_of_opcode = function
   | `Continuation -> "continuation frame"
@@ -119,21 +122,31 @@ let write_int64 oc v =
   EndianString.BigEndian.set_int64 buf 0 v;
   Lwt_io.write oc buf
 
+let is_bit_set idx v =
+  (v lsr idx) land 1 = 1
+
+let set_bit v idx b =
+  if b then v lor (1 lsl idx) else v land (lnot (1 lsl idx))
+
+let int_value shift len v =
+  (v lsr shift) land ((1 lsl len) - 1)
+
 let rec read_frames ic push =
   let hdr = String.create 2 in
   lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
-  let hdr = Bitstring.bitstring_of_string hdr in
-  let final, rsv1, rsv2, rsv3, opcode, masked, length =
-    bitmatch hdr with
-      | { final: 1; rsv1: 1; rsv2: 1; rsv3: 1;
-          opcode: 4; masked: 1; length: 7 }
-        -> final, rsv1, rsv2, rsv3, opcode, masked, length in
+  let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
+  let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
+  let final = is_bit_set 7 hdr_part1 in
+  let extension = int_value 4 3 hdr_part1 in
+  let opcode = int_value 0 4 hdr_part1 in
+  let masked = is_bit_set 7 hdr_part2 in
+  let length = int_value 0 7 hdr_part2 in
   let opcode = opcode_of_int opcode in
   lwt payload_len = (match length with
     | i when i < 126 -> return $ Int64.of_int i
     | 126            -> read_int16 ic >|= Int64.of_int
     | 127            -> read_int64 ic
-    | _              -> raise_lwt (Failure "bug in module Bitstring"))
+    | _              -> raise_lwt (Failure "internal error"))
       >|= Int64.to_int
   in
   let mask = String.create 4 in
@@ -142,23 +155,25 @@ let rec read_frames ic push =
   let content = String.create payload_len in
   lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
   let () = if masked then xor mask content in
-  let () = push (Some { opcode; final; content }) in
+  let () = push (Some { opcode; extension; final; content }) in
   read_frames ic push
 
 let rec write_frames ~masked stream oc =
   let send_frame fr =
     let mask = CK.Random.string CK.Random.secure_rng 4 in
     let len = String.length fr.content in
-    let extensions = 0 in
     let opcode = int_of_opcode fr.opcode in
     let payload_len = match len with
       | n when n < 126      -> len
       | n when n < 1 lsl 16 -> 126
       | _                   -> 127 in
-    let bitstring = Bitstring.string_of_bitstring $
-      BITSTRING {fr.final: 1; extensions: 3;
-                 opcode: 4; masked : 1; payload_len: 7} in
-    lwt () = Lwt_io.write oc bitstring in
+    let hdr = set_bit 0 15 fr.final in (* We do not support extensions for now *)
+    let hdr = hdr lor (opcode lsl 8) in
+    let hdr = set_bit hdr 7 masked in
+    let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
+    let hdr_string = String.create 2 in
+    let () = EndianString.BigEndian.set_int16 hdr_string 0 hdr in
+    lwt () = Lwt_io.write_from_exactly oc hdr_string 0 2 in
     lwt () =
       (match len with
         | n when n < 126        -> return ()

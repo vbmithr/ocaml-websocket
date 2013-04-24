@@ -6,11 +6,11 @@ let client uri =
     let rec read_fun () =
       Lwt_io.read_line Lwt_io.stdin
       >>= fun content -> wrap
-      (fun () -> push (Some {opcode=`Text; final=true; content}))
+      (fun () -> push (Some {opcode=`Text; extension=0; final=true; content}))
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream
-      >>= fun {opcode; final; content} -> Lwt_io.printl content
+      >>= fun { content } -> Lwt_io.printl content
       >>= write_fun in
     read_fun () <&> write_fun ()
   in

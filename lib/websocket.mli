@@ -41,7 +41,7 @@ type opcode =
   ]
 (** Type representing websocket opcodes *)
 
-type frame = { opcode: opcode; final: bool; content: string }
+type frame = { opcode: opcode; extension:int; final: bool; content: string }
 (** The type representing websocket frames *)
 
 val sockaddr_of_dns : string -> string -> Lwt_unix.sockaddr Lwt.t
