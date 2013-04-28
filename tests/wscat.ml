@@ -10,7 +10,7 @@ let client uri =
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream
-      >>= fun fr -> Lwt_io.printl fr.Frame.content
+      >>= fun fr -> Lwt_io.printl (Frame.get_content fr)
       >>= write_fun in
     read_fun () <&> write_fun ()
   in

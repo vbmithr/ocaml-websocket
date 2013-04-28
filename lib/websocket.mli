@@ -42,9 +42,15 @@ module Frame : sig
     ]
   (** Type representing websocket opcodes *)
 
-
-  type t = { opcode: opcode; extension:int; final: bool; content: string }
+  type t
   (** The type representing websocket frames *)
+
+  (** Accessors for type t *)
+
+  val get_opcode    : t -> opcode
+  val get_extension : t -> int
+  val get_final     : t -> bool
+  val get_content   : t -> string
 
   val of_string : ?opcode:opcode -> ?extension:int -> ?final:bool -> string -> t
   (** Frame creation *)
