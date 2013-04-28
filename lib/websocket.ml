@@ -294,4 +294,4 @@ let establish_server ?buffer_size ?backlog sockaddr f =
     ~setup_server_socket:setup_socket
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> ignore_result $ server_fun (ic,oc))
+    (fun (ic,oc) -> ignore_result $ try_lwt server_fun (ic,oc) with _ -> return ())
