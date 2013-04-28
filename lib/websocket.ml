@@ -50,21 +50,28 @@ exception Not_implemented
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-type opcode =
-  [ `Continuation
-  | `Text
-  | `Binary
-  | `Close
-  | `Ping
-  | `Pong
-  | `Ctrl of int
-  | `Nonctrl of int
-  ]
+module Frame = struct
+  type opcode =
+    [ `Continuation
+    | `Text
+    | `Binary
+    | `Close
+    | `Ping
+    | `Pong
+    | `Ctrl of int
+    | `Nonctrl of int
+    ]
 
-type frame = { opcode : opcode;
-               extension: int;
-               final : bool;
-               content : string }
+  type t = { opcode    : opcode;
+             extension : int;
+             final     : bool;
+             content   : string }
+
+  let of_string ?(opcode=`Text) ?(extension=0) ?(final=true) content =
+    { opcode; extension; final; content }
+end
+
+open Frame
 
 let string_of_opcode = function
   | `Continuation -> "continuation frame"
