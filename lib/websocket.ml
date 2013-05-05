@@ -262,10 +262,9 @@ let with_connection uri f =
   f (stream_in, push_out)
 
 let establish_server ?buffer_size ?backlog sockaddr f =
-  let stream_in, push_in   = Lwt_stream.create ()
-  and stream_out, push_out = Lwt_stream.create () in
-
   let server_fun (ic,oc) =
+    let stream_in, push_in   = Lwt_stream.create ()
+    and stream_out, push_out = Lwt_stream.create () in
     lwt request = Request.read ic >>=
       function Some r -> return r | None -> raise_lwt Not_found in
     let meth    = Request.meth request
@@ -292,7 +291,7 @@ let establish_server ?buffer_size ?backlog sockaddr f =
       ~headers:response_headers () in
     lwt () = Response.write (fun _ _ -> return ()) response oc
     in
-    join [read_frames ic push_in;
+    pick [read_frames ic push_in;
           write_frames ~masked:false stream_out oc;
           f uri (stream_in, push_out)]
   in

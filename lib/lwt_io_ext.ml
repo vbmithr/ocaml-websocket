@@ -15,12 +15,12 @@ let open_connection ?setup_socket ?buffer_size sockaddr =
   try_lwt
     lwt () = Lwt_unix.connect fd sockaddr in
     (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-    return (make ?buffer_size
+    return (of_fd ?buffer_size
         ~close:(fun _ -> shutdown_and_close_socket fd)
-        ~mode:input (Lwt_bytes.read fd),
-      make ?buffer_size
+        ~mode:input fd,
+      of_fd ?buffer_size
         ~close:(fun _ -> shutdown_and_close_socket fd)
-        ~mode:output (Lwt_bytes.write fd))
+        ~mode:output fd)
   with exn ->
     shutdown_and_close_socket fd >> raise_lwt exn
 

@@ -8,8 +8,7 @@ let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
       Lwt_io.read_line Lwt_io.stdin
-      >>= fun content -> Lwt.wrap
-      (fun () -> push (Some (Frame.of_string content)))
+      >>= fun content -> Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream
@@ -28,11 +27,21 @@ let server port =
   Lwt.return (establish_server sockaddr echo_fun)
 
 let _ =
-  if Array.length Sys.argv < 2 then
-    (Printf.eprintf "Usage: %s [-s] uri\n" Sys.argv.(0); exit 1)
-  if Sys.argv.(1) = "-s"
-  then
-    Lwt_main.run (
-      server "8080" >>= fun _ -> client (Uri.of_string "ws://localhost:8080"))
-  else
-    Lwt_main.run (client (Uri.of_string Sys.argv.(1)))
+  let run_server port =
+    server port >>= fun _ -> client (Uri.of_string ("ws://localhost:" ^ port)) in
+  let server_port = ref "" in
+  let endpoint_address = ref "" in
+
+  Arg.parse [("-s", Arg.Set_string server_port, "Run server on specified port")]
+    (fun s -> endpoint_address := s)
+    "Usage: %s [-s port] uri\n";
+
+  let main_thread =
+    if !server_port <> "" then
+      run_server !server_port
+    else client (Uri.of_string !endpoint_address) in
+  Lwt_main.run main_thread
+
+
+
+
