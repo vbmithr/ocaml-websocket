@@ -204,7 +204,10 @@ let sockaddr_of_dns node service =
         | []   -> raise_lwt Not_found)
       >|= fun ai -> ai.ai_addr
 
-let setup_socket fd = Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
+let setup_socket fd =
+  Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true;
+  if not (Lwt_unix.getsockopt fd Lwt_unix.TCP_NODELAY)
+  then failwith "Unable to set TCP_NODELAY"
 
 let open_connection uri =
   (* Initialisation *)

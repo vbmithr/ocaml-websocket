@@ -31,13 +31,10 @@ let with_connection ?setup_socket ?buffer_size sockaddr f =
   finally
     close ic <&> close oc
 
-type server = {
-  shutdown : unit Lazy.t;
-}
+type server = { shutdown : unit Lazy.t }
 
 let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(backlog=5) sockaddr f =
   let sock = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
-  try_lwt
     Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true;
     (match setup_server_socket with Some f -> f sock | None -> ());
     Lwt_unix.bind sock sockaddr;
@@ -62,6 +59,4 @@ let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(
           return ()
     in
     ignore (loop ());
-    return { shutdown = lazy(wakeup abort_wakener `Shutdown) }
-  with exn ->
-    shutdown_and_close_socket sock >> raise_lwt exn
+    { shutdown = lazy(wakeup abort_wakener `Shutdown) }
