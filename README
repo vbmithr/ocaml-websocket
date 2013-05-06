@@ -9,13 +9,12 @@ Dependencies:
 
 * obuild (for building)
 * lwt
-* bitstring
 * cohttp
 * cryptokit
 
 You can install those dependencies with OPAM:
 
-opam install --yes obuild lwt bitstring cryptokit cohttp
+opam install --yes obuild lwt cryptokit cohttp
 
 Bugs:
 =====
