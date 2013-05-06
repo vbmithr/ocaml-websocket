@@ -8,37 +8,70 @@ let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
       Lwt_io.read_line Lwt_io.stdin
-      >>= fun content -> Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
+      >>= fun content -> 
+      Lwt_log.notice_f "Client: Sending!\n";
+      Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream
-      >>= fun fr -> Lwt_io.printl (Frame.get_content fr)
+      >>= fun fr -> 
+      Lwt_log.notice_f "Client: Receiving!\n";
+      Lwt_io.printl (Frame.get_content fr)
       >>= write_fun in
     read_fun () <&> write_fun ()
   in
   with_connection uri cat_fun
 
-let server port =
+let server sockaddr =
   let rec echo_fun uri (stream, push) =
     Lwt_stream.next stream
     >>= fun frame -> Lwt.wrap (fun () -> push (Some frame))
     >> echo_fun uri (stream, push) in
-  lwt sockaddr = sockaddr_of_dns "localhost" port in
-  Lwt.return (establish_server sockaddr echo_fun)
+  establish_server sockaddr echo_fun
+
+let lwt_client sockaddr =
+  let rec read_and_send oc =
+    Lwt_io.read_line Lwt_io.stdin
+    >>= fun content -> Lwt_io.fprintl oc content
+    >> read_and_send oc
+  and receive_and_print ic =
+    Lwt_io.read_line ic
+    >>= fun content -> Lwt_io.printl content
+    >> receive_and_print ic in
+  let do_both (ic,oc) = read_and_send oc <&> receive_and_print ic in
+  Lwt_io_ext.with_connection sockaddr do_both
+
+let lwt_echo_server sockaddr =
+  let rec echo_fun (ic,oc) =
+    Lwt_io.read_line ic
+    >>= fun content -> Lwt_io.fprintl oc content
+    >> echo_fun (ic,oc) in
+  Lwt_io_ext.establish_server sockaddr echo_fun
+
+let rec wait_forever () =
+  Lwt_unix.sleep 1000.0 >>= wait_forever
 
 let _ =
-  let run_server port =
-    server port >>= fun _ -> client (Uri.of_string ("ws://localhost:" ^ port)) in
   let server_port = ref "" in
   let endpoint_address = ref "" in
 
-  Arg.parse [("-s", Arg.Set_string server_port, "Run server on specified port")]
+  let run_server node service =
+    Lwt_io_ext.sockaddr_of_dns node service >>= fun sockaddr -> Lwt.return (server sockaddr) in
+  
+  let run_lwt_server node service =
+    lwt sockaddr = Lwt_io_ext.sockaddr_of_dns node service in
+    let _ = lwt_echo_server sockaddr in
+    lwt_client sockaddr in
+
+  Arg.parse
+    [("-s", Arg.Set_string server_port, "Run server on specified port");
+     ("-l", Arg.Set_string server_port, "Run dummy server on specified port");
+    ]
     (fun s -> endpoint_address := s)
     "Usage: %s [-s port] uri\n";
 
   let main_thread =
-    if !server_port <> "" then
-      run_server !server_port
+    if !server_port <> "" then run_server "localhost" !server_port >>= fun _ -> wait_forever ()
     else client (Uri.of_string !endpoint_address) in
   Lwt_main.run main_thread
 

@@ -60,3 +60,17 @@ let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(
     in
     ignore (loop ());
     { shutdown = lazy(wakeup abort_wakener `Shutdown) }
+
+let sockaddr_of_dns node service =
+  let open Lwt_unix in
+  (match_lwt getaddrinfo node service
+      [AI_FAMILY(PF_INET); AI_SOCKTYPE(SOCK_STREAM)] with
+        | h::t -> return h
+        | []   -> raise_lwt Not_found)
+      >|= fun ai -> ai.ai_addr
+
+
+let set_tcp_nodelay fd =
+  Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true;
+  if not (Lwt_unix.getsockopt fd Lwt_unix.TCP_NODELAY)
+  then failwith "Unable to set TCP_NODELAY"

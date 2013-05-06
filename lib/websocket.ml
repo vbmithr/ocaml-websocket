@@ -168,9 +168,12 @@ let rec read_frames ic push =
   let () = push (Some (Frame.of_string ~opcode ~extension ~final content)) in
   read_frames ic push
 
+(* Good enough, and do not eat entropy *)
+let myrng = CK.Random.pseudo_rng (CK.Random.string CK.Random.secure_rng 20)
+
 let rec write_frames ~masked stream oc =
   let send_frame fr =
-    let mask = CK.Random.string CK.Random.secure_rng 4 in
+    let mask = CK.Random.string myrng 4 in
     let len = String.length (Frame.get_content fr) in
     let opcode = int_of_opcode (Frame.get_opcode fr) in
     let payload_len = match len with
@@ -196,18 +199,7 @@ let rec write_frames ~masked stream oc =
     Lwt_io.flush oc in
   Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
 
-let sockaddr_of_dns node service =
-  let open Lwt_unix in
-  (match_lwt getaddrinfo node service
-      [AI_FAMILY(PF_INET); AI_SOCKTYPE(SOCK_STREAM)] with
-        | h::t -> return h
-        | []   -> raise_lwt Not_found)
-      >|= fun ai -> ai.ai_addr
-
-let setup_socket fd =
-  Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true;
-  if not (Lwt_unix.getsockopt fd Lwt_unix.TCP_NODELAY)
-  then failwith "Unable to set TCP_NODELAY"
+let setup_socket = Lwt_io_ext.set_tcp_nodelay
 
 let open_connection uri =
   (* Initialisation *)
@@ -227,7 +219,7 @@ let open_connection uri =
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
-    lwt sockaddr = sockaddr_of_dns host (string_of_int port) in
+    lwt sockaddr = Lwt_io_ext.sockaddr_of_dns host (string_of_int port) in
     lwt ic, oc =
       Lwt_io_ext.open_connection ~setup_socket sockaddr in
     try_lwt

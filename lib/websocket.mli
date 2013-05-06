@@ -56,11 +56,6 @@ module Frame : sig
   (** Frame creation *)
 end
 
-val sockaddr_of_dns : string -> string -> Lwt_unix.sockaddr Lwt.t
-(** [sockaddr_of_dns hostname service] returns a sockaddr that
-    corresponds to the hostname and service (service can be the port
-    given as a string) provided as arguments. *)
-
 val open_connection : Uri.t -> (Frame.t Lwt_stream.t * (Frame.t option -> unit)) Lwt.t
 (** [open_connection uri] will open a connection to the given uri, and
     return a stream and a push function that can be used to send and
