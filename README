@@ -11,10 +11,11 @@ Dependencies:
 * lwt
 * cohttp
 * cryptokit
+* ocplib-endian
 
 You can install those dependencies with OPAM:
 
-opam install --yes obuild lwt cryptokit cohttp
+opam install --yes obuild lwt cryptokit cohttp ocplib-endian
 
 Bugs:
 =====
