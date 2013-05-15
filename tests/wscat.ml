@@ -8,15 +8,13 @@ let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
       Lwt_io.read_line Lwt_io.stdin
-      >>= fun content -> 
-      Lwt_log.notice_f "Client: Sending!\n";
+      >>= fun content -> Lwt_log.notice_f "Client: Sending!\n";
       Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream
-      >>= fun fr -> 
-      Lwt_log.notice_f "Client: Receiving!\n";
-      Lwt_io.printl (Frame.get_content fr)
+      >>= fun fr -> Lwt_log.notice_f "Client: Receiving!\n";
+      Lwt_io.printl (Frame.content fr)
       >>= write_fun in
     read_fun () <&> write_fun ()
   in

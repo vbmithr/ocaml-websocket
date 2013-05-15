@@ -67,10 +67,10 @@ module Frame = struct
              final     : bool;
              content   : string }
 
-  let get_opcode f    = f.opcode
-  let get_extension f = f.extension
-  let get_final f     = f.final
-  let get_content f   = f.content
+  let opcode f    = f.opcode
+  let extension f = f.extension
+  let final f     = f.final
+  let content f   = f.content
 
   let of_string ?(opcode=`Text) ?(extension=0) ?(final=true) content =
     { opcode; extension; final; content }
@@ -174,13 +174,13 @@ let myrng = CK.Random.pseudo_rng (CK.Random.string CK.Random.secure_rng 20)
 let rec write_frames ~masked stream oc =
   let send_frame fr =
     let mask = CK.Random.string myrng 4 in
-    let len = String.length (Frame.get_content fr) in
-    let opcode = int_of_opcode (Frame.get_opcode fr) in
+    let len = String.length (Frame.content fr) in
+    let opcode = int_of_opcode (Frame.opcode fr) in
     let payload_len = match len with
       | n when n < 126      -> len
       | n when n < 1 lsl 16 -> 126
       | _                   -> 127 in
-    let hdr = set_bit 0 15 (Frame.get_final fr) in (* We do not support extensions for now *)
+    let hdr = set_bit 0 15 (Frame.final fr) in (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 masked in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
@@ -194,8 +194,8 @@ let rec write_frames ~masked stream oc =
         | n                     -> Int64.of_int n |> write_int64 oc)
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
-        >|= fun () -> xor mask (Frame.get_content fr) else return () in
-    lwt () = Lwt_io.write_from_exactly oc (Frame.get_content fr) 0 len in
+        >|= fun () -> xor mask (Frame.content fr) else return () in
+    lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
   Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
 
