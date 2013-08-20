@@ -8,23 +8,30 @@ let shutdown_and_close_socket fd =
     Lwt_unix.shutdown fd Unix.SHUTDOWN_ALL;
     return ()
   with _ -> return ()
-     finally
-       try_lwt Lwt_unix.close fd with _ -> return ()
+  finally try_lwt Lwt_unix.close fd with _ -> return ()
 
-let open_connection ?setup_socket ?buffer_size sockaddr =
+let open_connection ?(tls=false) ?setup_socket ?buffer_size sockaddr =
   let fd = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   (match setup_socket with Some f -> f fd | None -> ());
   try_lwt
-    lwt () = Lwt_unix.connect fd sockaddr in
-    (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-    return (of_fd ?buffer_size
-        ~close:(fun _ -> shutdown_and_close_socket fd)
-        ~mode:input fd,
-      of_fd ?buffer_size
-        ~close:(fun _ -> shutdown_and_close_socket fd)
-        ~mode:output fd)
-  with exn ->
-    shutdown_and_close_socket fd >> raise_lwt exn
+    if tls then
+      lwt () = Lwt_unix.connect fd sockaddr in
+      let context = Ssl.(create_context TLSv1 Client_context) in
+      lwt socket = Lwt_ssl.ssl_connect fd context in
+      try_lwt
+        (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+        return (Lwt_ssl.in_channel_of_descr socket,
+                Lwt_ssl.out_channel_of_descr socket)
+      with exn -> Lwt_ssl.ssl_shutdown socket >> raise_lwt exn
+    else
+      lwt () = Lwt_unix.connect fd sockaddr in
+      (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+      return (of_fd ?buffer_size
+                ~close:(fun _ -> shutdown_and_close_socket fd)
+                ~mode:input fd,
+              of_fd ?buffer_size
+                ~close:(fun _ -> shutdown_and_close_socket fd)
+                ~mode:output fd)
 
 let with_connection ?setup_socket ?buffer_size sockaddr f =
   lwt ic, oc = open_connection ?setup_socket ?buffer_size sockaddr in
@@ -70,7 +77,6 @@ let sockaddr_of_dns node service =
         | h::t -> return h
         | []   -> raise_lwt Not_found)
       >|= fun ai -> ai.ai_addr
-
 
 let set_tcp_nodelay fd =
   Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true;

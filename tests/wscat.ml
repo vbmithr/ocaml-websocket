@@ -7,13 +7,11 @@ let (<&>) a b = Lwt.join [a;b]
 let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
-      Lwt_io.read_line Lwt_io.stdin
-      >>= fun content -> Lwt_log.notice_f "Client: Sending!\n";
+      Lwt_io.read_line Lwt_io.stdin >>= fun content ->
       Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
       >>= read_fun in
     let rec write_fun () =
-      Lwt_stream.next stream
-      >>= fun fr -> Lwt_log.notice_f "Client: Receiving!\n";
+      Lwt_stream.next stream >>= fun fr ->
       Lwt_io.printl (Frame.content fr)
       >>= write_fun in
     read_fun () <&> write_fun ()
@@ -54,20 +52,16 @@ let _ =
   let endpoint_address = ref "" in
 
   let run_server node service =
-    Lwt_io_ext.sockaddr_of_dns node service >>= fun sockaddr -> Lwt.return (server sockaddr) in
-  
-  let run_lwt_server node service =
-    lwt sockaddr = Lwt_io_ext.sockaddr_of_dns node service in
-    let _ = lwt_echo_server sockaddr in
-    lwt_client sockaddr in
-
-  Arg.parse
-    [("-s", Arg.Set_string server_port, "Run server on specified port");
-     ("-l", Arg.Set_string server_port, "Run dummy server on specified port");
-    ]
-    (fun s -> endpoint_address := s)
-    "Usage: %s [-s port] uri\n";
-
+    Lwt_io_ext.sockaddr_of_dns node service >>= fun sockaddr -> Lwt.return (server sockaddr)
+  in
+  let speclist = Arg.align
+      [
+        ("-s", Arg.Set_string server_port, " Run server on specified port");
+        ("-l", Arg.Set_string server_port, " Run dummy server on specified port");
+      ]in
+  let anon_fun s = endpoint_address := s in
+  let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
+  Arg.parse speclist anon_fun usage_msg;
   let main_thread =
     if !server_port <> "" then run_server "localhost" !server_port >>= fun _ -> wait_forever ()
     else client (Uri.of_string !endpoint_address) in

@@ -1,6 +1,6 @@
 OASISFormat: 0.3
 Name: websocket
-Version: 0.5
+Version: 0.6
 Synopsis: Websocket interface for Lwt and Cohttp.
 Authors: Vincent Bernardoff <vb@luminar.eu.org>
 License: ISC
@@ -10,7 +10,7 @@ BuildTools: ocamlbuild
 Library websocket
   Path: lib
   Modules: Websocket
-  BuildDepends: lwt, lwt.syntax, cohttp.lwt, cryptokit, ocplib-endian
+  BuildDepends: lwt, lwt.ssl, lwt.syntax, cohttp.lwt, cryptokit, ocplib-endian
   CompiledObject: best
 
 Executable wscat
