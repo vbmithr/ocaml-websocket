@@ -19,4 +19,4 @@ Executable wscat
   BuildDepends: websocket
   CompiledObject: best
   Build: true
-  Install: true
+  Install: false
