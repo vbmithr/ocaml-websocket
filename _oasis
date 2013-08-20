@@ -10,7 +10,7 @@ BuildTools: ocamlbuild
 Library websocket
   Path: lib
   Modules: Websocket
-  BuildDepends: lwt, cohttp.lwt, cryptokit, ocplib-endian
+  BuildDepends: lwt, lwt.syntax, cohttp.lwt, cryptokit, ocplib-endian
   CompiledObject: best
 
 Executable wscat
