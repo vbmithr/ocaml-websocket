@@ -1,6 +1,8 @@
 open Lwt
 open Lwt_io
 
+let (>>=) = Lwt.bind
+
 let shutdown_and_close_socket fd =
   try_lwt
     Lwt_unix.shutdown fd Unix.SHUTDOWN_ALL;

@@ -15,11 +15,12 @@
  *
  *)
 
-open Lwt
-open Cohttp
-open Cohttp_lwt_unix
-
 module CK = Cryptokit
+
+external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
+external (|>) : 'a -> ('a -> 'b) -> 'b = "%revapply"
+let (>>=) = Lwt.bind
+let (>|=) = Lwt.map
 
 let base64_encode str =
   let tr = CK.Base64.encode_compact_pad () in
@@ -29,8 +30,6 @@ let sha1sum str =
   let hash = CK.Hash.sha1 () in
   CK.hash_string hash str
 
-external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
-external (|>) : 'a -> ('a -> 'b) -> 'b = "%revapply"
 
 module Opt = struct
   let map f = function
@@ -115,12 +114,12 @@ let xor mask msg =
 let read_int16 ic =
   let buf = String.create 2 in
   Lwt_io.read_into_exactly ic buf 0 2 >>
-    (return $ EndianString.BigEndian.get_int16 buf 0)
+    (Lwt.return $ EndianString.BigEndian.get_int16 buf 0)
 
 let read_int64 ic =
   let buf = String.create 8 in
   Lwt_io.read_into_exactly ic buf 0 8 >>
-    (return $ EndianString.BigEndian.get_int64 buf 0)
+    (Lwt.return $ EndianString.BigEndian.get_int64 buf 0)
 
 let write_int16 oc v =
   let buf = String.create 2 in
@@ -153,15 +152,15 @@ let rec read_frames ic push =
   let length = int_value 0 7 hdr_part2 in
   let opcode = opcode_of_int opcode in
   lwt payload_len = (match length with
-    | i when i < 126 -> return $ Int64.of_int i
-    | 126            -> read_int16 ic >|= Int64.of_int
-    | 127            -> read_int64 ic
-    | _              -> raise_lwt (Failure "internal error"))
-      >|= Int64.to_int
+      | i when i < 126 -> Lwt.return $ Int64.of_int i
+      | 126            -> read_int16 ic >|= Int64.of_int
+      | 127            -> read_int64 ic
+      | _              -> raise_lwt (Failure "internal error"))
+    >|= Int64.to_int
   in
   let mask = String.create 4 in
   lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
-    else return () in
+    else Lwt.return () in
   let content = String.create payload_len in
   lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
   let () = if masked then xor mask content in
@@ -189,12 +188,12 @@ let rec write_frames ~masked stream oc =
     lwt () = Lwt_io.write_from_exactly oc hdr_string 0 2 in
     lwt () =
       (match len with
-        | n when n < 126        -> return ()
+        | n when n < 126        -> Lwt.return ()
         | n when n < (1 lsl 16) -> write_int16 oc n
         | n                     -> Int64.of_int n |> write_int64 oc)
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
-        >|= fun () -> xor mask (Frame.content fr) else return () in
+        >|= fun () -> xor mask (Frame.content fr) else Lwt.return () in
     lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
   Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
@@ -223,9 +222,9 @@ let open_connection uri =
     lwt ic, oc =
       Lwt_io_ext.open_connection ~setup_socket sockaddr in
     try_lwt
-      lwt () = Request.write (fun _ _ -> return ()) req oc in
+      lwt () = Request.write (fun _ _ -> Lwt.return ()) req oc in
       lwt response = Response.read ic >>= function
-        | Some r -> return r
+        | Some r -> Lwt.return r
         | None -> raise_lwt Not_found in
       let headers = Response.headers response in
       (assert_lwt Response.version response = `HTTP_1_1) >>
@@ -237,7 +236,7 @@ let open_connection uri =
       (assert_lwt Header.get headers "sec-websocket-accept" =
          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
       Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
-      return (ic, oc)
+      Lwt.return (ic, oc)
     with exn ->
       Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
 
@@ -246,7 +245,7 @@ let open_connection uri =
   try_lwt
     ignore_result
       (read_frames ic push_in <&> write_frames ~masked:true stream_out oc);
-    return (stream_in, push_out)
+    Lwt.return (stream_in, push_out)
   with exn -> Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
 
 let with_connection uri f =
@@ -258,7 +257,7 @@ let establish_server ?buffer_size ?backlog sockaddr f =
     let stream_in, push_in   = Lwt_stream.create ()
     and stream_out, push_out = Lwt_stream.create () in
     lwt request = Request.read ic >>=
-      function Some r -> return r | None -> raise_lwt Not_found in
+      function Some r -> Lwt.return r | None -> raise_lwt Not_found in
     let meth    = Request.meth request
     and version = Request.version request
     and uri     = Request.uri request
@@ -281,7 +280,7 @@ let establish_server ?buffer_size ?backlog sockaddr f =
       ~status:`Switching_protocols
       ~encoding:Transfer.Unknown
       ~headers:response_headers () in
-    lwt () = Response.write (fun _ _ -> return ()) response oc
+    lwt () = Response.write (fun _ _ -> Lwt.return ()) response oc
     in
     pick [read_frames ic push_in;
           write_frames ~masked:false stream_out oc;
@@ -291,4 +290,4 @@ let establish_server ?buffer_size ?backlog sockaddr f =
     ~setup_server_socket:setup_socket
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> ignore_result $ try_lwt server_fun (ic,oc) with _ -> return ())
+    (fun (ic,oc) -> ignore_result $ try_lwt server_fun (ic,oc) with _ -> Lwt.return ())
