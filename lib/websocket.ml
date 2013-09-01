@@ -265,11 +265,12 @@ let with_connection uri f =
   f (stream_in, push_out)
 
 let establish_server ?buffer_size ?backlog sockaddr f =
-  let server_fun (ic,oc) =
+  let server_fun (ic, oc) =
     let stream_in, push_in   = Lwt_stream.create ()
     and stream_out, push_out = Lwt_stream.create () in
-    lwt request = CU.Request.read ic >>=
-      function Some r -> Lwt.return r | None -> raise_lwt Not_found in
+    lwt request = CU.Request.read ic >>= function
+      | Some r -> Lwt.return r
+      | None -> Lwt.fail Not_found in
     let meth    = C.Request.meth request
     and version = C.Request.version request
     and uri     = C.Request.uri request
@@ -296,8 +297,9 @@ let establish_server ?buffer_size ?backlog sockaddr f =
           write_frames ~masked:false stream_out oc;
           f uri (stream_in, push_out)]
   in
+  Lwt.async_exception_hook := (fun exn -> Printf.printf "EXN: %s\n%!" (Printexc.to_string exn));
   Lwt_io_ext.establish_server
     ~setup_server_socket:setup_socket
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> Lwt.ignore_result $ try_lwt server_fun (ic,oc) with _ -> Lwt.return ())
+    (fun (ic,oc) -> Lwt.async (fun () -> server_fun (ic,oc)))

@@ -55,10 +55,9 @@ let _ =
     Lwt_io_ext.sockaddr_of_dns node service >>= fun sockaddr -> Lwt.return (server sockaddr)
   in
   let speclist = Arg.align
-      [
-        ("-s", Arg.Set_string server_port, " Run server on specified port");
-        ("-l", Arg.Set_string server_port, " Run dummy server on specified port");
-      ]in
+      [ ("-s", Arg.Set_string server_port, " Run server on specified port");
+      ]
+  in
   let anon_fun s = endpoint_address := s in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg;

@@ -33,8 +33,8 @@ let open_connection ?(tls=false) ?setup_socket ?buffer_size sockaddr =
                 ~close:(fun _ -> shutdown_and_close_socket fd)
                 ~mode:output fd)
 
-let with_connection ?setup_socket ?buffer_size sockaddr f =
-  lwt ic, oc = open_connection ?setup_socket ?buffer_size sockaddr in
+let with_connection ?tls ?setup_socket ?buffer_size sockaddr f =
+  lwt ic, oc = open_connection ?tls ?setup_socket ?buffer_size sockaddr in
   try_lwt
     f (ic, oc)
   finally
@@ -56,7 +56,7 @@ let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(
         (match setup_clients_sockets with Some f -> f fd | None -> ());
         (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
         f (of_fd ?buffer_size ~mode:input ~close:(fun () -> shutdown_and_close_socket fd) fd,
-          of_fd ?buffer_size ~mode:output ~close:(fun () -> shutdown_and_close_socket fd) fd);
+           of_fd ?buffer_size ~mode:output ~close:(fun () -> shutdown_and_close_socket fd) fd);
         loop ()
       | `Shutdown ->
         lwt () = Lwt_unix.close sock in
