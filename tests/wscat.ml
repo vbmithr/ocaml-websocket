@@ -25,25 +25,6 @@ let server sockaddr =
     >> echo_fun uri (stream, push) in
   establish_server sockaddr echo_fun
 
-let lwt_client sockaddr =
-  let rec read_and_send oc =
-    Lwt_io.read_line Lwt_io.stdin
-    >>= fun content -> Lwt_io.fprintl oc content
-    >> read_and_send oc
-  and receive_and_print ic =
-    Lwt_io.read_line ic
-    >>= fun content -> Lwt_io.printl content
-    >> receive_and_print ic in
-  let do_both (ic,oc) = read_and_send oc <&> receive_and_print ic in
-  Lwt_io_ext.with_connection sockaddr do_both
-
-let lwt_echo_server sockaddr =
-  let rec echo_fun (ic,oc) =
-    Lwt_io.read_line ic
-    >>= fun content -> Lwt_io.fprintl oc content
-    >> echo_fun (ic,oc) in
-  Lwt_io_ext.establish_server sockaddr echo_fun
-
 let rec wait_forever () =
   Lwt_unix.sleep 1000.0 >>= wait_forever
 
@@ -52,7 +33,8 @@ let _ =
   let endpoint_address = ref "" in
 
   let run_server node service =
-    Lwt_io_ext.sockaddr_of_dns node service >>= fun sockaddr -> Lwt.return (server sockaddr)
+    Lwt_io_ext.sockaddr_of_dns node service >>= fun sa ->
+    Lwt.return (server sa)
   in
   let speclist = Arg.align
       [ ("-s", Arg.Set_string server_port, " Run server on specified port");

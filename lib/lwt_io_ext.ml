@@ -7,8 +7,10 @@ let shutdown_and_close_socket fd =
   try_lwt
     Lwt_unix.shutdown fd Unix.SHUTDOWN_ALL;
     return ()
-  with _ -> return ()
-  finally try_lwt Lwt_unix.close fd with _ -> return ()
+  with _ ->
+    return ()
+  finally
+    try_lwt Lwt_unix.close fd with _ -> return ()
 
 let open_connection ?(tls=false) ?setup_socket ?buffer_size sockaddr =
   let fd = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
@@ -52,7 +54,7 @@ let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(
     let abort_waiter = abort_waiter >> return `Shutdown in
     let rec loop () =
       pick [Lwt_unix.accept sock >|= (fun x -> `Accept x); abort_waiter] >>= function
-      | `Accept(fd, addr) ->
+      | `Accept(fd, _) ->
         (match setup_clients_sockets with Some f -> f fd | None -> ());
         (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
         f (of_fd ?buffer_size ~mode:input ~close:(fun () -> shutdown_and_close_socket fd) fd,

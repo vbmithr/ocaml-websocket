@@ -208,44 +208,52 @@ let rec write_frames ~masked stream oc =
 
 let setup_socket = Lwt_io_ext.set_tcp_nodelay
 
-let open_connection uri =
+exception No_response_from_remote_server
+exception HTTP_Error of string
+
+let open_connection ?(tls = false) uri =
   (* Initialisation *)
   lwt myhostname = Lwt_unix.gethostname () in
   let host = Opt.run_exc (Uri.host uri) in
   let port = Uri.port uri in
   let scheme = Uri.scheme uri in
-  let port = match port, scheme with
-    | None, None -> 80
-    | Some p, _ -> p
-    | None, Some s -> (match s with "https" | "wss" -> 443 | _ -> 80) in
+  let port, tls = match port, scheme with
+    | None, None -> 80, tls
+    | Some p, _ -> p, tls
+    | None, Some s -> (match s with "https" | "wss" -> 443, true | _ -> 80, tls) in
 
   let stream_in, push_in   = Lwt_stream.create ()
   and stream_out, push_out = Lwt_stream.create () in
 
   let connect () =
+    let open Cohttp in
     let nonce = base64_encode $ CK.Random.string myrng 16 in
     let headers =
-      C.Header.of_list
+      Header.of_list
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
-    let req = C.Request.make ~headers uri in
+    let req = Request.make ~headers uri in
     lwt sockaddr = Lwt_io_ext.sockaddr_of_dns host (string_of_int port) in
     lwt ic, oc =
-      Lwt_io_ext.open_connection ~tls:(port = 443) ~setup_socket sockaddr in
+      Lwt_io_ext.open_connection ~tls ~setup_socket sockaddr in
     try_lwt
       lwt () = CU.Request.write (fun _ _ -> Lwt.return ()) req oc in
       lwt response = CU.Response.read ic >>= function
         | Some r -> Lwt.return r
-        | None -> raise_lwt Not_found in
+        | None -> raise_lwt No_response_from_remote_server in
+      let status = Response.status response in
       let headers = CU.Response.headers response in
+      if Code.(is_error (code_of_status status))
+      then raise_lwt (HTTP_Error Code.(string_of_status status))
+      else Lwt.return () >>
       (* let _ = C.Header.fold (fun k v () -> Printf.printf "%s: %s\n%!" k v) headers () in *)
-      (assert_lwt C.Response.version response = `HTTP_1_1) >>
-      (assert_lwt C.Response.status response = `Switching_protocols) >>
-      (assert_lwt Opt.(C.Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
-      (assert_lwt Opt.(C.Header.get headers "connection" >|= String.lowercase) = Some "upgrade") >>
-      (assert_lwt C.Header.get headers "sec-websocket-accept" =
+      (assert_lwt Response.version response = `HTTP_1_1) >>
+      (assert_lwt status = `Switching_protocols) >>
+      (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
+      (assert_lwt Opt.(Header.get headers "connection" >|= String.lowercase) = Some "upgrade") >>
+      (assert_lwt Header.get headers "sec-websocket-accept" =
          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
       Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
       Lwt.return (ic, oc)
@@ -260,11 +268,11 @@ let open_connection uri =
     Lwt.return (stream_in, push_out)
   with exn -> Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
 
-let with_connection uri f =
-  lwt stream_in, push_out = open_connection uri in
+let with_connection ?(tls = false) uri f =
+  lwt stream_in, push_out = open_connection ~tls uri in
   f (stream_in, push_out)
 
-let establish_server ?buffer_size ?backlog sockaddr f =
+let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
   let server_fun (ic, oc) =
     let stream_in, push_in   = Lwt_stream.create ()
     and stream_out, push_out = Lwt_stream.create () in

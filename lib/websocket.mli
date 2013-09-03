@@ -56,19 +56,21 @@ module Frame : sig
   (** Frame creation *)
 end
 
-val open_connection : Uri.t -> (Frame.t Lwt_stream.t * (Frame.t option -> unit)) Lwt.t
-(** [open_connection uri] will open a connection to the given uri, and
-    return a stream and a push function that can be used to send and
-    receive websocket messages. The websocket messages are simply
-    strings. *)
+val open_connection : ?tls:bool -> Uri.t ->
+  (Frame.t Lwt_stream.t * (Frame.t option -> unit)) Lwt.t
+(** [open_connection ~tls uri] will open a connection (over TLS if
+    [~tls] is [true]) to the given uri, and return a stream and a push
+    function that can be used to send and receive websocket
+    messages. *)
 
-val with_connection : Uri.t ->
+val with_connection : ?tls:bool -> Uri.t ->
   (Frame.t Lwt_stream.t * (Frame.t option -> unit) -> 'a Lwt.t) -> 'a Lwt.t
 (** Same as above except for here you provide a function that will be
     in charge of communicating with the other end, and that takes a
     stream and a push function as arguments. *)
 
 val establish_server :
+  ?tls:bool ->
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
