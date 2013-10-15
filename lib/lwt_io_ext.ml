@@ -13,13 +13,17 @@ let shutdown_and_close_socket fd =
     try_lwt Lwt_unix.close fd with _ -> return ()
 
 let open_connection ?(tls=false) ?setup_socket ?buffer_size sockaddr =
-  let fd = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
+  let fd = Unix.handle_unix_error
+      (fun () -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0)
+      () in
   (match setup_socket with Some f -> f fd | None -> ());
   try_lwt
     if tls then
-      lwt () = Lwt_unix.connect fd sockaddr in
-      let context = Ssl.(create_context TLSv1 Client_context) in
-      lwt socket = Lwt_ssl.ssl_connect fd context in
+      Lwt_unix.(handle_unix_error (fun () -> connect fd sockaddr) ()) >>= fun () ->
+      let context = Unix.handle_unix_error
+          (fun () -> Ssl.(create_context TLSv1 Client_context)) () in
+      lwt socket = Lwt_unix.handle_unix_error
+          (fun () -> Lwt_ssl.ssl_connect fd context) () in
       try_lwt
         (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
         return (Lwt_ssl.in_channel_of_descr socket,

@@ -20,8 +20,11 @@ module C = Cohttp
 module CU = Cohttp_lwt_unix
 module CB = Cohttp_lwt_body
 
-external ($) : ('a -> 'b) -> 'a -> 'b = "%apply"
-external (|>) : 'a -> ('a -> 'b) -> 'b = "%revapply"
+#if ocaml_version < (4,1)
+let (@@) f x = f x
+let (|>) x f = f x
+#endif
+
 let (>>=) = Lwt.bind
 let (>|=) x f = Lwt.map f x
 let (<&>) a b = Lwt.join [a; b]
@@ -115,7 +118,7 @@ let int_of_opcode = function
 
 let xor mask msg =
   for i = 0 to String.length msg - 1 do (* masking msg to send *)
-    msg.[i] <- Char.chr $
+    msg.[i] <- Char.chr @@
       Char.code mask.[i mod 4] lxor Char.code msg.[i]
   done
 
@@ -160,7 +163,7 @@ let rec read_frames ic push =
   let length = int_value 0 7 hdr_part2 in
   let opcode = opcode_of_int opcode in
   lwt payload_len = (match length with
-      | i when i < 126 -> Lwt.return $ Int64.of_int i
+      | i when i < 126 -> Lwt.return @@ Int64.of_int i
       | 126            -> read_int16 ic >|= Int64.of_int
       | 127            -> read_int64 ic
       | _              -> raise_lwt (Failure "internal error"))
@@ -227,7 +230,7 @@ let open_connection ?(tls = false) uri =
 
   let connect () =
     let open Cohttp in
-    let nonce = base64_encode $ CK.Random.string myrng 16 in
+    let nonce = base64_encode @@ CK.Random.string myrng 16 in
     let headers =
       Header.of_list
         ["Upgrade"               , "websocket";
@@ -235,30 +238,35 @@ let open_connection ?(tls = false) uri =
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
-    lwt sockaddr = Lwt_io_ext.sockaddr_of_dns host (string_of_int port) in
-    lwt ic, oc =
-      Lwt_io_ext.open_connection ~tls ~setup_socket sockaddr in
+    Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
+    Lwt_unix.handle_unix_error
+      (fun () -> Lwt_io_ext.open_connection ~tls ~setup_socket sockaddr)
+      () >>= fun (ic, oc) ->
     try_lwt
-      lwt () = CU.Request.write (fun _ _ -> Lwt.return ()) req oc in
-      lwt response = CU.Response.read ic >>= function
+      Lwt_unix.handle_unix_error
+        (fun () -> CU.Request.write (fun _ _ -> Lwt.return ()) req oc) () >>= fun () ->
+      Lwt_unix.handle_unix_error
+        (fun () -> CU.Response.read ic) () >>= (function
         | Some r -> Lwt.return r
-        | None -> raise_lwt No_response_from_remote_server in
+        | None -> raise_lwt No_response_from_remote_server)
+      >>= fun response ->
       let status = Response.status response in
       let headers = CU.Response.headers response in
       if Code.(is_error (code_of_status status))
-      then raise_lwt (HTTP_Error Code.(string_of_status status))
-      else Lwt.return () >>
-      (* let _ = C.Header.fold (fun k v () -> Printf.printf "%s: %s\n%!" k v) headers () in *)
-      (assert_lwt Response.version response = `HTTP_1_1) >>
-      (assert_lwt status = `Switching_protocols) >>
-      (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
-      (assert_lwt Opt.(Header.get headers "connection" >|= String.lowercase) = Some "upgrade") >>
-      (assert_lwt Header.get headers "sec-websocket-accept" =
+      then raise (HTTP_Error Code.(string_of_status status))
+      else
+        (* let _ = C.Header.fold (fun k v () -> Printf.printf "%s: %s\n%!" k v) headers () in *)
+        (assert_lwt Response.version response = `HTTP_1_1) >>
+        (assert_lwt status = `Switching_protocols) >>
+        (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
+        (assert_lwt Opt.(Header.get headers "connection" >|= String.lowercase) = Some "upgrade") >>
+        (assert_lwt Header.get headers "sec-websocket-accept" =
          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
-      Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
-      Lwt.return (ic, oc)
+        Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
+        Lwt.return (ic, oc)
     with exn ->
-      Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
+      (try_lwt Lwt_io.(close ic <&> close oc) >> raise_lwt exn
+       finally raise_lwt exn)
 
   in
   lwt ic, oc = connect () in
@@ -283,7 +291,7 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
     and version = C.Request.version request
     and uri     = C.Request.uri request
     and headers = C.Request.headers request in
-    let key = Opt.run_exc $ C.Header.get headers "sec-websocket-key" in
+    let key = Opt.run_exc @@ C.Header.get headers "sec-websocket-key" in
     lwt () =
       (assert_lwt version = `HTTP_1_1) >>
       (assert_lwt meth = `GET) >>

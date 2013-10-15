@@ -20,9 +20,9 @@ let client uri =
 
 let server sockaddr =
   let rec echo_fun uri (stream, push) =
-    Lwt_stream.next stream
-    >>= fun frame -> Lwt.wrap (fun () -> push (Some frame))
-    >> echo_fun uri (stream, push) in
+    Lwt_stream.next stream >>= fun frame ->
+    Lwt.wrap (fun () -> push (Some frame)) >>= fun () ->
+    echo_fun uri (stream, push) in
   establish_server sockaddr echo_fun
 
 let rec wait_forever () =
@@ -43,11 +43,12 @@ let _ =
   let anon_fun s = endpoint_address := s in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg;
-  let main_thread =
-    if !server_port <> "" then run_server "localhost" !server_port >>= fun _ -> wait_forever ()
-    else client (Uri.of_string !endpoint_address) in
-  Lwt_main.run main_thread
-
-
-
-
+  let main () =
+    match !server_port, !endpoint_address with
+    | p, "" when p <> "" ->
+      run_server "localhost" !server_port >>= fun _ -> wait_forever ()
+    | _, endpoint when endpoint <> "" ->
+      client (Uri.of_string !endpoint_address)
+    | _ -> Lwt_io.eprintl "Please specify a server port or a valid URI."
+  in
+  Lwt_main.run (main ())
