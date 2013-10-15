@@ -1,8 +1,9 @@
 # OASIS_START
-# DO NOT EDIT (digest: 5528a97fda0a947a95c808ccdb36e96f)
+# DO NOT EDIT (digest: 1e3fa096b11c8c6ab5aee1ca86611e79)
 version = "0.6"
 description = "Websocket interface for Lwt and Cohttp."
-requires = "lwt lwt.ssl lwt.syntax cohttp.lwt cryptokit ocplib-endian"
+requires =
+"lwt lwt.ssl lwt.syntax cohttp.lwt cryptokit ocplib-endian optcomp"
 archive(byte) = "websocket.cma"
 archive(byte, plugin) = "websocket.cma"
 archive(native) = "websocket.cmxa"
