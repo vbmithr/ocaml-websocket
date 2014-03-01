@@ -1,5 +1,9 @@
-0.6 (2013-08-20)
+0.7 (trunk):
+* New "extra_headers" optional argument for {open,with}_connection (acm)
+* Port to cohttp 0.10.x API (avsm)
+
+0.6 (2013-08-20):
 * Added SSL support for the client.
 
-0.5 (2013-05-06)
+0.5 (2013-05-06):
 * First working release.
