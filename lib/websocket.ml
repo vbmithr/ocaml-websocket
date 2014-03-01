@@ -214,7 +214,7 @@ let setup_socket = Lwt_io_ext.set_tcp_nodelay
 exception No_response_from_remote_server
 exception HTTP_Error of string
 
-let open_connection ?(tls = false) uri =
+let open_connection ?(tls = false) ?(extra_headers = []) uri =
   (* Initialisation *)
   lwt myhostname = Lwt_unix.gethostname () in
   let host = Opt.run_exc (Uri.host uri) in
@@ -231,12 +231,15 @@ let open_connection ?(tls = false) uri =
   let connect () =
     let open Cohttp in
     let nonce = base64_encode @@ CK.Random.string myrng 16 in
-    let headers =
-      Header.of_list
-        ["Upgrade"               , "websocket";
-         "Connection"            , "Upgrade";
-         "Sec-WebSocket-Key"     , nonce;
-         "Sec-WebSocket-Version" , "13"] in
+    let in_extra_hdrs key = 
+      let lkey = String.lowercase key in
+      (List.find_all (fun (k,v) -> (String.lowercase k) = lkey) extra_headers) = [] in
+    let hdr_list = extra_headers @ List.filter (fun (k,v) -> in_extra_hdrs k)
+      ["Upgrade"               , "websocket";
+       "Connection"            , "Upgrade";
+       "Sec-WebSocket-Key"     , nonce;
+       "Sec-WebSocket-Version" , "13"] in
+    let headers = Header.of_list hdr_list in
     let req = Request.make ~headers uri in
     Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
     Lwt_unix.handle_unix_error
@@ -276,8 +279,8 @@ let open_connection ?(tls = false) uri =
     Lwt.return (stream_in, push_out)
   with exn -> Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
 
-let with_connection ?(tls = false) uri f =
-  lwt stream_in, push_out = open_connection ~tls uri in
+let with_connection ?(tls = false) ?(extra_headers = []) uri f =
+  lwt stream_in, push_out = open_connection ~tls ~extra_headers uri in
   f (stream_in, push_out)
 
 let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
