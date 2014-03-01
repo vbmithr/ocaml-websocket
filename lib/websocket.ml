@@ -247,8 +247,8 @@ let open_connection ?(tls = false) uri =
         (fun () -> CU.Request.write (fun _ _ -> Lwt.return ()) req oc) () >>= fun () ->
       Lwt_unix.handle_unix_error
         (fun () -> CU.Response.read ic) () >>= (function
-        | Some r -> Lwt.return r
-        | None -> raise_lwt No_response_from_remote_server)
+        | `Ok r -> Lwt.return r
+        | `Eof | `Invalid _ -> raise_lwt No_response_from_remote_server)
       >>= fun response ->
       let status = Response.status response in
       let headers = CU.Response.headers response in
@@ -285,8 +285,9 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
     let stream_in, push_in   = Lwt_stream.create ()
     and stream_out, push_out = Lwt_stream.create () in
     lwt request = CU.Request.read ic >>= function
-      | Some r -> Lwt.return r
-      | None -> Lwt.fail Not_found in
+      | `Ok r -> Lwt.return r
+      | `Eof -> Lwt.fail Not_found 
+      | `Invalid reason -> Lwt.fail (Failure reason) in
     let meth    = C.Request.meth request
     and version = C.Request.version request
     and uri     = C.Request.uri request
