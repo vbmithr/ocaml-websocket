@@ -1,4 +1,4 @@
-0.7 (trunk):
+0.7 (2014-03-02):
 * New "extra_headers" optional argument for {open,with}_connection (acm)
 * Port to cohttp 0.10.x API (avsm)
 
