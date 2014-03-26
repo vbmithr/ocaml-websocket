@@ -214,6 +214,12 @@ let setup_socket = Lwt_io_ext.set_tcp_nodelay
 exception No_response_from_remote_server
 exception HTTP_Error of string
 
+let is_upgrade = 
+    let open Re in
+    let re = compile (seq [ rep any; no_case (str "upgrade") ]) in
+    (function None -> false
+            | Some(key) -> execp re key)
+
 let open_connection ?(tls = false) ?(extra_headers = []) uri =
   (* Initialisation *)
   lwt myhostname = Lwt_unix.gethostname () in
@@ -262,7 +268,7 @@ let open_connection ?(tls = false) ?(extra_headers = []) uri =
         (assert_lwt Response.version response = `HTTP_1_1) >>
         (assert_lwt status = `Switching_protocols) >>
         (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
-        (assert_lwt Opt.(Header.get headers "connection" >|= String.lowercase) = Some "upgrade") >>
+        (assert_lwt (is_upgrade (C.Header.get headers "connection"))) >>
         (assert_lwt Header.get headers "sec-websocket-accept" =
          Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
         Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
@@ -300,7 +306,7 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
       (assert_lwt version = `HTTP_1_1) >>
       (assert_lwt meth = `GET) >>
       (assert_lwt Opt.(C.Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
-      (assert_lwt Opt.(C.Header.get headers "connection" >|= String.lowercase) = Some "upgrade")
+      (assert_lwt (is_upgrade (C.Header.get headers "connection")))
     in
     let hash = key ^ websocket_uuid |> sha1sum |> base64_encode in
     let response_headers = C.Header.of_list
