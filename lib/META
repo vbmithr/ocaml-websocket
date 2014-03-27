@@ -1,6 +1,6 @@
 # OASIS_START
-# DO NOT EDIT (digest: 1e3fa096b11c8c6ab5aee1ca86611e79)
-version = "0.6"
+# DO NOT EDIT (digest: a130d6c05f2b454bafa83b6da7b95462)
+version = "0.9"
 description = "Websocket interface for Lwt and Cohttp."
 requires =
 "lwt lwt.ssl lwt.syntax cohttp.lwt cryptokit ocplib-endian optcomp"

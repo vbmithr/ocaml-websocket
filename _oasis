@@ -1,10 +1,10 @@
-OASISFormat: 0.3
+OASISFormat: 0.4
 Name: websocket
-Version: 0.6
+Version: 0.9
 Synopsis: Websocket interface for Lwt and Cohttp.
 Authors: Vincent Bernardoff <vb@luminar.eu.org>
 License: ISC
-Plugins: META (0.3), DevFiles (0.3)
+Plugins: META (0.4), DevFiles (0.4)
 BuildTools: ocamlbuild
 
 Library websocket
