@@ -77,5 +77,7 @@ val establish_server :
   (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) -> Lwt_io_ext.server
 (** Function in the spirit of [Lwt_io.establish_server], except
     that the provided function takes a stream and a push function
-    instead of two channels. Please refer to the [Lwt_io] doc for
-    more information. *)
+    instead of two channels.
+    Beware that when the Lwt thread returned by this function terminates,
+    no more data will be read from or written to the socket.
+    Please refer to the [Lwt_io] doc for more information. *)
