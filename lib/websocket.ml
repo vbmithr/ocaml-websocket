@@ -169,9 +169,11 @@ let rec read_frames ic push =
       | _              -> raise_lwt (Failure "internal error"))
     >|= Int64.to_int
   in
+  let payload_len = if `Close = opcode then payload_len - 2 else payload_len in
   let mask = String.create 4 in
   lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
     else Lwt.return () in
+  lwt _ = if `Close = opcode then Lwt_io.read ic ~count:2 else Lwt.return "" in
   let content = String.create payload_len in
   lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
   let () = if masked then xor mask content in
