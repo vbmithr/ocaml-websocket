@@ -169,9 +169,11 @@ let rec read_frames ic push =
       | _              -> raise_lwt (Failure "internal error"))
     >|= Int64.to_int
   in
+  let payload_len = if `Close = opcode then payload_len - 2 else payload_len in
   let mask = String.create 4 in
   lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
     else Lwt.return () in
+  lwt _ = if `Close = opcode then Lwt_io.read ic ~count:2 else Lwt.return "" in
   let content = String.create payload_len in
   lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
   let () = if masked then xor mask content in
@@ -186,8 +188,10 @@ let rec write_frames ~masked stream oc =
     let mask = CK.Random.string myrng 4 in
     let len = String.length (Frame.content fr) in
     let opcode = int_of_opcode (Frame.opcode fr) in
-    let payload_len = match len with
-      | n when n < 126      -> len
+    let isclose = `Close = Frame.opcode fr in
+    let payload_len = if isclose then len + 2 else len in
+    let payload_len = match payload_len with
+      | n when n < 126      -> payload_len
       | n when n < 1 lsl 16 -> 126
       | _                   -> 127 in
     let hdr = set_bit 0 15 (Frame.final fr) in (* We do not support extensions for now *)
@@ -205,6 +209,7 @@ let rec write_frames ~masked stream oc =
     in
     lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
         >|= fun () -> xor mask (Frame.content fr) else Lwt.return () in
+    lwt () = if isclose then write_int16 oc 1000 else Lwt.return_unit in
     lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
   Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
