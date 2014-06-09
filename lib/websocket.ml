@@ -151,39 +151,52 @@ let set_bit v idx b =
 let int_value shift len v =
   (v lsr shift) land ((1 lsl len) - 1)
 
-let rec read_frames ic push =
+(* Should an exception arise in the body of this function, ic and oc
+   will be closed *)
+let read_frames (ic,oc) push =
   let hdr = String.create 2 in
-  lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
-  let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
-  let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
-  let final = is_bit_set 7 hdr_part1 in
-  let extension = int_value 4 3 hdr_part1 in
-  let opcode = int_value 0 4 hdr_part1 in
-  let masked = is_bit_set 7 hdr_part2 in
-  let length = int_value 0 7 hdr_part2 in
-  let opcode = opcode_of_int opcode in
-  lwt payload_len = (match length with
-      | i when i < 126 -> Lwt.return @@ Int64.of_int i
-      | 126            -> read_int16 ic >|= Int64.of_int
-      | 127            -> read_int64 ic
-      | _              -> raise_lwt (Failure "internal error"))
-    >|= Int64.to_int
-  in
-  let payload_len = if `Close = opcode then payload_len - 2 else payload_len in
   let mask = String.create 4 in
-  lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4
-    else Lwt.return () in
-  lwt _ = if `Close = opcode then Lwt_io.read ic ~count:2 else Lwt.return "" in
-  let content = String.create payload_len in
-  lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
-  let () = if masked then xor mask content in
-  let () = push (Some (Frame.of_string ~opcode ~extension ~final content)) in
-  read_frames ic push
+  let rec inner () =
+    lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
+    let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
+    let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
+    let final = is_bit_set 7 hdr_part1 in
+    let extension = int_value 4 3 hdr_part1 in
+    let opcode = int_value 0 4 hdr_part1 in
+    let masked = is_bit_set 7 hdr_part2 in
+    let length = int_value 0 7 hdr_part2 in
+    let opcode = opcode_of_int opcode in
+    lwt payload_len = (match length with
+        | i when i < 126 -> Lwt.return @@ Int64.of_int i
+        | 126            -> read_int16 ic >|= Int64.of_int
+        | 127            -> read_int64 ic
+        | _              -> raise_lwt (Failure "internal error"))
+      >|= Int64.to_int
+    in
+    let payload_len = if `Close = opcode then payload_len - 2 else payload_len in
+    lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit in
+    lwt _ = if `Close = opcode then Lwt_io.read ic ~count:2 else Lwt.return "" in
+    (* Create a buffer that will be passed to the push function *)
+    let content = String.create payload_len in
+    lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
+    let () = if masked then xor mask content in
+    push (Some (Frame.of_string ~opcode ~extension ~final content));
+    Lwt.return_unit
+  in
+  let rec inner_cleanup () =
+    (try_lwt inner ()
+    with exn ->
+      push None;
+      Lwt_io.(close ic <&> close oc) >> raise_lwt exn) >>
+    inner_cleanup () in
+  inner_cleanup ()
 
 (* Good enough, and do not eat entropy *)
 let myrng = CK.Random.device_rng "/dev/urandom"
 
-let rec write_frames ~masked stream oc =
+(* Should an exception arise in the body of this function, ic and oc
+   will be closed *)
+let write_frames ~masked stream (ic,oc) =
   let send_frame fr =
     let mask = CK.Random.string myrng 4 in
     let len = String.length (Frame.content fr) in
@@ -212,7 +225,13 @@ let rec write_frames ~masked stream oc =
     lwt () = if isclose then write_int16 oc 1000 else Lwt.return_unit in
     lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
-  Lwt_stream.next stream >>= send_frame >> write_frames ~masked stream oc
+  let rec inner_cleanup () =
+    (try_lwt
+       Lwt_stream.next stream >>= send_frame
+     with exn ->
+       Lwt_io.(close ic <&> close oc) >> raise_lwt exn) >>
+    inner_cleanup () in
+  inner_cleanup ()
 
 let setup_socket = Lwt_io_ext.set_tcp_nodelay
 
@@ -279,16 +298,15 @@ let open_connection ?(tls = false) ?(extra_headers = []) uri =
         Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
         Lwt.return (ic, oc)
     with exn ->
-      (try_lwt Lwt_io.(close ic <&> close oc) >> raise_lwt exn
-       finally raise_lwt exn)
+      Lwt_io.(close ic <&> close oc) >> raise_lwt exn
 
   in
   lwt ic, oc = connect () in
-  try_lwt
-    Lwt.ignore_result
-      (read_frames ic push_in <&> write_frames ~masked:true stream_out oc);
-    Lwt.return (stream_in, push_out)
-  with exn -> Lwt_io.close ic <&> Lwt_io.close oc >> raise_lwt exn
+  (* ic and oc will be closed by either read_frames or write_frames on
+     failure *)
+  Lwt.async (fun () ->
+      (read_frames (ic,oc) push_in <&> write_frames ~masked:true stream_out (ic,oc)));
+  Lwt.return (stream_in, push_out)
 
 let with_connection ?(tls = false) ?(extra_headers = []) uri f =
   lwt stream_in, push_out = open_connection ~tls ~extra_headers uri in
@@ -300,7 +318,7 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
     and stream_out, push_out = Lwt_stream.create () in
     lwt request = CU.Request.read ic >>= function
       | `Ok r -> Lwt.return r
-      | `Eof -> Lwt.fail Not_found 
+      | `Eof -> Lwt.fail Not_found
       | `Invalid reason -> Lwt.fail (Failure reason) in
     let meth    = C.Request.meth request
     and version = C.Request.version request
@@ -315,22 +333,25 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
     in
     let hash = key ^ websocket_uuid |> sha1sum |> base64_encode in
     let response_headers = C.Header.of_list
-      ["Upgrade", "websocket";
-       "Connection", "Upgrade";
-       "Sec-WebSocket-Accept", hash] in
+        ["Upgrade", "websocket";
+         "Connection", "Upgrade";
+         "Sec-WebSocket-Accept", hash] in
     let response = C.Response.make
-      ~status:`Switching_protocols
-      ~encoding:C.Transfer.Unknown
-      ~headers:response_headers () in
-    lwt () = CU.Response.write (fun _ _ -> Lwt.return ()) response oc
-    in
-    Lwt.pick [read_frames ic push_in;
-          write_frames ~masked:false stream_out oc;
-          f uri (stream_in, push_out)]
+        ~status:`Switching_protocols
+        ~encoding:C.Transfer.Unknown
+        ~headers:response_headers () in
+    CU.Response.write (fun _ _ -> Lwt.return_unit) response oc >>
+    Lwt.pick [read_frames (ic,oc) push_in;
+              write_frames ~masked:false stream_out (ic,oc);
+              f uri (stream_in, push_out)]
   in
   Lwt.async_exception_hook := (fun exn -> Printf.printf "EXN: %s\n%!" (Printexc.to_string exn));
   Lwt_io_ext.establish_server
     ~setup_server_socket:setup_socket
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> Lwt.async (fun () -> server_fun (ic,oc)))
+    (fun (ic,oc) -> Lwt.async (fun () ->
+         let server_t = server_fun (ic,oc)
+         in Lwt.on_termination server_t (fun () -> Lwt_io.(close ic <&> close oc) |> Lwt.ignore_result);
+         server_t
+       ))

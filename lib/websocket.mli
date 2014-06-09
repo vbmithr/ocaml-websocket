@@ -24,9 +24,6 @@
     unframing of messages, using Lwt streams. Thus the communicating
     with the websocket server (or client) is done using an Lwt stream
     and corresponding push function.
-
-    TODO: Currently the functions returning streams lack a way to
-    close the underlying connection, causing fds to leak.
 *)
 
 module Frame : sig
