@@ -65,7 +65,8 @@ module Frame = struct
     [ `Continuation
     | `Text
     | `Binary
-    | `Close
+    | `Close (* A close frame without a status code *)
+    | `Close_status of int (* A close frame with a status code *)
     | `Ping
     | `Pong
     | `Ctrl of int
@@ -84,13 +85,17 @@ module Frame = struct
 
   let of_string ?(opcode=`Text) ?(extension=0) ?(final=true) content =
     { opcode; extension; final; content }
+
+  let of_substring ?(opcode=`Text) ?(extension=0) ?(final=true) content pos len =
+    { opcode; extension; final; content=String.sub content pos len }
 end
 
 let string_of_opcode = function
   | `Continuation -> "continuation frame"
   | `Text         -> "text frame"
   | `Binary       -> "binary frame"
-  | `Close        -> "close frame"
+  | `Close        -> "close frame without status code"
+  | `Close_status i -> Printf.sprintf "close frame with status code %d" i
   | `Ping         -> "ping frame"
   | `Pong         -> "pong frame"
   | `Ctrl i       -> Printf.sprintf "control frame code %d" i
@@ -111,6 +116,7 @@ let int_of_opcode = function
   | `Text         -> 1
   | `Binary       -> 2
   | `Close        -> 8
+  | `Close_status _ -> 8
   | `Ping         -> 9
   | `Pong         -> 10
   | `Ctrl i       -> i
@@ -151,9 +157,14 @@ let set_bit v idx b =
 let int_value shift len v =
   (v lsr shift) land ((1 lsl len) - 1)
 
+exception Close_frame_received
+
+(* Good enough, and do not eat entropy *)
+let myrng = CK.Random.device_rng "/dev/urandom"
+
 (* Should an exception arise in the body of this function, ic and oc
    will be closed *)
-let read_frames (ic,oc) push =
+let read_frames (ic,oc) push_to_client push_to_remote =
   let hdr = String.create 2 in
   let mask = String.create 4 in
   let rec inner () =
@@ -173,26 +184,38 @@ let read_frames (ic,oc) push =
         | _              -> raise_lwt (Failure "internal error"))
       >|= Int64.to_int
     in
-    let payload_len = if `Close = opcode then payload_len - 2 else payload_len in
     lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit in
-    lwt _ = if `Close = opcode then Lwt_io.read ic ~count:2 else Lwt.return "" in
     (* Create a buffer that will be passed to the push function *)
     let content = String.create payload_len in
     lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
     let () = if masked then xor mask content in
-    push (Some (Frame.of_string ~opcode ~extension ~final content));
+    let () = match opcode with
+    | `Ping -> (* Immediately reply with a pong, and pass the message to the user *)
+      push_to_remote (Some (Frame.of_string ~opcode:`Pong ~extension ~final content));
+      push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
+    | `Close -> (* Immediately echo, pass this last message to the user, and close the stream *)
+      (if payload_len > 2 then
+         let status_code = EndianString.BigEndian.get_int16 content 0 in
+         push_to_remote (Some (Frame.of_substring ~opcode:(`Close_status status_code) content 0 2));
+         push_to_client (Some (Frame.of_string ~opcode:(`Close_status status_code) ~extension ~final content))
+       else
+         (push_to_remote (Some (Frame.of_string ~opcode:`Close ""));
+          push_to_client (Some (Frame.of_string ~opcode ~extension ~final content)))
+      );
+      raise Close_frame_received
+    | _ ->
+      push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
+    in
     Lwt.return_unit
   in
   let rec inner_cleanup () =
     (try_lwt inner ()
     with exn ->
-      push None;
+      push_to_client None;
       Lwt_io.(close ic <&> close oc) >> raise_lwt exn) >>
     inner_cleanup () in
   inner_cleanup ()
 
-(* Good enough, and do not eat entropy *)
-let myrng = CK.Random.device_rng "/dev/urandom"
 
 (* Should an exception arise in the body of this function, ic and oc
    will be closed *)
@@ -305,7 +328,7 @@ let open_connection ?(tls = false) ?(extra_headers = []) uri =
   (* ic and oc will be closed by either read_frames or write_frames on
      failure *)
   Lwt.async (fun () ->
-      (read_frames (ic,oc) push_in <&> write_frames ~masked:true stream_out (ic,oc)));
+      (read_frames (ic,oc) push_in push_out <&> write_frames ~masked:true stream_out (ic,oc)));
   Lwt.return (stream_in, push_out)
 
 let with_connection ?(tls = false) ?(extra_headers = []) uri f =
@@ -341,11 +364,13 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     CU.Response.write (fun _ _ -> Lwt.return_unit) response oc >>
-    Lwt.pick [read_frames (ic,oc) push_in;
+    Lwt.pick [read_frames (ic,oc) push_in push_out;
               write_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
   in
-  Lwt.async_exception_hook := (fun exn -> Printf.printf "EXN: %s\n%!" (Printexc.to_string exn));
+  Lwt.async_exception_hook := (function
+      | Lwt_stream.Empty -> () (* Raised by read_frame when an endpoint closes the connection *)
+      | exn -> Printf.printf "EXN: %s\n%!" (Printexc.to_string exn));
   Lwt_io_ext.establish_server
     ~setup_server_socket:setup_socket
     ~setup_clients_sockets:setup_socket

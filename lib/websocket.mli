@@ -32,6 +32,7 @@ module Frame : sig
     | `Text
     | `Binary
     | `Close
+    | `Close_status of int
     | `Ping
     | `Pong
     | `Ctrl of int
