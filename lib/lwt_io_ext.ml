@@ -1,80 +1,92 @@
 open Lwt
 open Lwt_io
 
-let (>>=) = Lwt.bind
+let section = Lwt_log.Section.make "lwt_io_ext"
 
-let shutdown_and_close_socket fd =
-  try_lwt
-    Lwt_unix.shutdown fd Unix.SHUTDOWN_ALL;
-    return ()
-  with _ ->
-    return ()
-  finally
-    try_lwt Lwt_unix.close fd with _ -> return ()
-
-let open_connection ?(tls=false) ?setup_socket ?buffer_size sockaddr =
-  let fd = Unix.handle_unix_error
-      (fun () -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0)
-      () in
-  (match setup_socket with Some f -> f fd | None -> ());
-  try_lwt
-    if tls then
-      Lwt_unix.(handle_unix_error (fun () -> connect fd sockaddr) ()) >>= fun () ->
-      let context = Unix.handle_unix_error
-          (fun () -> Ssl.(create_context TLSv1 Client_context)) () in
-      lwt socket = Lwt_unix.handle_unix_error
-          (fun () -> Lwt_ssl.ssl_connect fd context) () in
-      try_lwt
-        (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-        return (Lwt_ssl.in_channel_of_descr socket,
-                Lwt_ssl.out_channel_of_descr socket)
-      with exn -> Lwt_ssl.ssl_shutdown socket >> raise_lwt exn
-    else
-      lwt () = Lwt_unix.connect fd sockaddr in
+let open_connection ?tls_authenticator ?(host="") ?fd ?buffer_size sockaddr =
+  let fd = match fd with
+    | None -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0
+    | Some fd -> fd
+  in
+  match tls_authenticator with
+  | None ->
+      Lwt_unix.connect fd sockaddr >>= fun () ->
       (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-      return (of_fd ?buffer_size
-                ~close:(fun _ -> shutdown_and_close_socket fd)
-                ~mode:input fd,
-              of_fd ?buffer_size
-                ~close:(fun _ -> shutdown_and_close_socket fd)
-                ~mode:output fd)
+      (of_fd ?buffer_size ~mode:input fd,
+       of_fd ?buffer_size ~mode:output fd)
+  |> return
 
-let with_connection ?tls ?setup_socket ?buffer_size sockaddr f =
-  lwt ic, oc = open_connection ?tls ?setup_socket ?buffer_size sockaddr in
+  | Some authenticator ->
+    let config = Tls.Config.client ~authenticator () in
+    try_lwt
+      Lwt_unix.connect fd sockaddr >>= fun () ->
+      (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+      Tls_lwt.(Unix.client_of_fd ~host config fd >|= of_t)
+    with exn ->
+      (try_lwt Lwt_unix.close fd with _ -> return_unit) >>
+      Lwt_log.warning ~exn ~section "open_connection" >>
+      raise_lwt exn
+
+let with_connection ?tls_authenticator ?fd ?buffer_size sockaddr f =
+  lwt ic, oc = open_connection ?tls_authenticator ?fd ?buffer_size sockaddr in
   try_lwt
     f (ic, oc)
   finally
-    close ic <&> close oc
+    close ic
 
 type server = { shutdown : unit Lazy.t }
 
-let establish_server ?setup_server_socket ?setup_clients_sockets ?buffer_size ?(backlog=5) sockaddr f =
-  let sock = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
-    Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true;
-    (match setup_server_socket with Some f -> f sock | None -> ());
-    Lwt_unix.bind sock sockaddr;
-    Lwt_unix.listen sock backlog;
-    let abort_waiter, abort_wakener = wait () in
-    let abort_waiter = abort_waiter >> return `Shutdown in
-    let rec loop () =
-      pick [Lwt_unix.accept sock >|= (fun x -> `Accept x); abort_waiter] >>= function
-      | `Accept(fd, _) ->
-        (match setup_clients_sockets with Some f -> f fd | None -> ());
-        (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-        f (of_fd ?buffer_size ~mode:input ~close:(fun () -> shutdown_and_close_socket fd) fd,
-           of_fd ?buffer_size ~mode:output ~close:(fun () -> shutdown_and_close_socket fd) fd);
-        loop ()
-      | `Shutdown ->
-        lwt () = Lwt_unix.close sock in
-        match sockaddr with
-        | Unix.ADDR_UNIX path when path <> "" && path.[0] <> '\x00' ->
-          Unix.unlink path;
-          return ()
-        | _ ->
-          return ()
-    in
-    ignore (loop ());
-    { shutdown = lazy(wakeup abort_wakener `Shutdown) }
+let establish_server ?certificate ?fd ?setup_clients_sockets ?buffer_size ?(backlog=5) sockaddr f =
+  let fd = match fd with
+    | None -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0
+    | Some fd -> fd
+  in
+  Lwt_unix.setsockopt fd Unix.SO_REUSEADDR true;
+  Lwt_unix.bind fd sockaddr;
+  Lwt_unix.listen fd backlog;
+  let abort_waiter, abort_wakener = wait () in
+  let abort_waiter = abort_waiter >> return `Shutdown in
+  let rec loop () =
+    match certificate with
+    | None ->
+      begin
+        pick [Lwt_unix.accept fd >|= (fun x -> `Accept x); abort_waiter] >>= function
+        | `Accept(fd, _) ->
+          (match setup_clients_sockets with Some f -> f fd | None -> ());
+          (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+          Lwt.async (fun () -> f (of_fd ?buffer_size ~mode:input fd,
+                                  of_fd ?buffer_size ~mode:output fd));
+          loop ()
+        | `Shutdown ->
+          lwt () = Lwt_unix.close fd in
+          match sockaddr with
+          | Unix.ADDR_UNIX path when path <> "" && path.[0] <> '\x00' ->
+            Unix.unlink path;
+            return ()
+          | _ ->
+            return ()
+      end
+    | Some certificate ->
+      let tls_config = Tls.Config.server ~certificate () in
+      begin
+        pick [Lwt_unix.accept fd >|= (fun x -> `Accept x); abort_waiter] >>= function
+        | `Accept(fd, _) ->
+          (match setup_clients_sockets with Some f -> f fd | None -> ());
+          (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+          Lwt.async (fun () -> Tls_lwt.(Unix.server_of_fd tls_config fd >|= of_t) >>= f);
+          loop ()
+        | `Shutdown ->
+          lwt () = Lwt_unix.close fd in
+          match sockaddr with
+          | Unix.ADDR_UNIX path when path <> "" && path.[0] <> '\x00' ->
+            Unix.unlink path;
+            return ()
+          | _ ->
+            return ()
+      end
+  in
+  ignore (loop ());
+  { shutdown = lazy(wakeup abort_wakener `Shutdown) }
 
 let sockaddr_of_dns node service =
   let open Lwt_unix in

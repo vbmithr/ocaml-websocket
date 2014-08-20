@@ -606,4 +606,15 @@ let dispatch_default = MyOCamlbuildBase.dispatch_default package_default;;
 
 # 608 "myocamlbuild.ml"
 (* OASIS_STOP *)
-Ocamlbuild_plugin.dispatch dispatch_default;;
+
+open Ocamlbuild_plugin
+
+let () =
+  dispatch
+    (function hook ->
+      dispatch_default hook ;
+      match hook with
+        | After_rules ->
+          flag ["ocaml";"compile";"lwtbacktrace"] (S [A"-ppopt"; A"-lwt-debug"]);
+        | _ -> ()
+    )

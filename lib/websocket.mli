@@ -54,28 +54,32 @@ module Frame : sig
   (** Frame creation *)
 end
 
-val open_connection : ?tls:bool -> ?extra_headers:((string * string) list) -> Uri.t ->
+val open_connection :
+  ?tls_authenticator:X509_lwt.authenticator ->
+  ?extra_headers:((string * string) list) -> Uri.t ->
   (Frame.t Lwt_stream.t * (Frame.t option -> unit)) Lwt.t
-(** [open_connection ~tls uri] will open a connection (over TLS if
-    [~tls] is [true]) to the given uri, and return a stream and a push
-    function that can be used to send and receive websocket
-    messages. *)
+(** [open_connection ~tls_authenticator uri] will open a connection
+    (using TLS with [~authenticator] if provided) to the given uri,
+    and return a stream and a push function that can be used to send
+    and receive websocket messages. *)
 
-val with_connection : ?tls:bool -> ?extra_headers:((string * string) list) -> Uri.t ->
+val with_connection :
+  ?tls_authenticator:X509_lwt.authenticator ->
+  ?extra_headers:((string * string) list) -> Uri.t ->
   (Frame.t Lwt_stream.t * (Frame.t option -> unit) -> 'a Lwt.t) -> 'a Lwt.t
 (** Same as above except for here you provide a function that will be
     in charge of communicating with the other end, and that takes a
     stream and a push function as arguments. *)
 
 val establish_server :
-  ?tls:bool ->
+  ?certificate:X509_lwt.priv ->
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
   (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) -> Lwt_io_ext.server
-(** Function in the spirit of [Lwt_io.establish_server], except
-    that the provided function takes a stream and a push function
-    instead of two channels.
-    Beware that when the Lwt thread returned by this function terminates,
-    no more data will be read from or written to the socket.
-    Please refer to the [Lwt_io] doc for more information. *)
+(** Function in the spirit of [Lwt_io.establish_server], except that
+    the provided function takes a stream and a push function instead
+    of two channels.  Beware that when the Lwt thread returned by this
+    function terminates, no more data will be read from or written to
+    the socket.  Please refer to the [Lwt_io] doc for more
+    information. *)

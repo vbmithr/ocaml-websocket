@@ -15,28 +15,25 @@
  *
  *)
 
-module CK = Cryptokit
+open Lwt
+
 module C = Cohttp
 module CU = Cohttp_lwt_unix
 module CB = Cohttp_lwt_body
 
-#if ocaml_version < (4,1)
-let (@@) f x = f x
-let (|>) x f = f x
-#endif
+let section = Lwt_log.Section.make "websocket"
 
-let (>>=) = Lwt.bind
-let (>|=) x f = Lwt.map f x
-let (<&>) a b = Lwt.join [a; b]
-let (<?>) a b = Lwt.pick [a; b]
+let random_string ?(base64=false) size =
+  Nocrypto.Rng.generate size |>
+  (if base64 then Nocrypto.Base64.encode else fun s -> s) |>
+  Cstruct.to_string
 
-let base64_encode str =
-  let tr = CK.Base64.encode_compact_pad () in
-  CK.transform_string tr str
-
-let sha1sum str =
-  let hash = CK.Hash.sha1 () in
-  CK.hash_string hash str
+let b64_encoded_sha1sum s =
+  let open Nocrypto in
+  Cstruct.of_string s |>
+  Hash.SHA1.digest |>
+  Base64.encode |>
+  Cstruct.to_string
 
 module Opt = struct
   let bind x f = match x with None -> None | Some v -> f v
@@ -159,15 +156,12 @@ let int_value shift len v =
 
 exception Close_frame_received
 
-(* Good enough, and do not eat entropy *)
-let myrng = CK.Random.device_rng "/dev/urandom"
-
 (* Should an exception arise in the body of this function, ic and oc
    will be closed *)
 let read_frames (ic,oc) push_to_client push_to_remote =
   let hdr = String.create 2 in
   let mask = String.create 4 in
-  let rec inner () =
+  let rec read_frame () =
     lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
     let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
     let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
@@ -190,38 +184,41 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
     let () = if masked then xor mask content in
     let () = match opcode with
-    | `Ping -> (* Immediately reply with a pong, and pass the message to the user *)
-      push_to_remote (Some (Frame.of_string ~opcode:`Pong ~extension ~final content));
-      push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
-    | `Close -> (* Immediately echo, pass this last message to the user, and close the stream *)
-      (if payload_len > 2 then
-         let status_code = EndianString.BigEndian.get_int16 content 0 in
-         push_to_remote (Some (Frame.of_substring ~opcode:(`Close_status status_code) content 0 2));
-         push_to_client (Some (Frame.of_string ~opcode:(`Close_status status_code) ~extension ~final content))
-       else
-         (push_to_remote (Some (Frame.of_string ~opcode:`Close ""));
-          push_to_client (Some (Frame.of_string ~opcode ~extension ~final content)))
-      );
-      raise Close_frame_received
-    | _ ->
-      push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
+      | `Ping -> (* Immediately reply with a pong, and pass the message to the user *)
+        push_to_remote (Some (Frame.of_string ~opcode:`Pong ~extension ~final content));
+        push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
+      | `Close -> (* Immediately echo, pass this last message to the user, and close the stream *)
+        (if payload_len > 2 then
+           let status_code = EndianString.BigEndian.get_int16 content 0 in
+           push_to_remote (Some (Frame.of_substring ~opcode:(`Close_status status_code) content 0 2));
+           push_to_client (Some (Frame.of_string ~opcode:(`Close_status status_code) ~extension ~final content))
+         else
+           (push_to_remote (Some (Frame.of_string ~opcode:`Close ""));
+            push_to_client (Some (Frame.of_string ~opcode ~extension ~final content)))
+        );
+        raise Close_frame_received
+      | _ ->
+        push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
     in
     Lwt.return_unit
   in
-  let rec inner_cleanup () =
-    (try_lwt inner ()
-    with exn ->
-      push_to_client None;
-      Lwt_io.(close ic <&> close oc) >> raise_lwt exn) >>
-    inner_cleanup () in
-  inner_cleanup ()
-
+  let rec read_forever () =
+    (try_lwt
+       read_frame ()
+     with exn ->
+       Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
+       (try push_to_client None with _ -> ());
+       (try_lwt Lwt_io.close ic with _ -> return_unit) >>
+       raise_lwt exn
+    ) >>
+    read_forever () in
+  read_forever ()
 
 (* Should an exception arise in the body of this function, ic and oc
    will be closed *)
-let write_frames ~masked stream (ic,oc) =
+let send_frames ~masked stream (ic,oc) =
   let send_frame fr =
-    let mask = CK.Random.string myrng 4 in
+    let mask = random_string 4 in
     let len = String.length (Frame.content fr) in
     let opcode = int_of_opcode (Frame.opcode fr) in
     let isclose = `Close = Frame.opcode fr in
@@ -248,43 +245,57 @@ let write_frames ~masked stream (ic,oc) =
     lwt () = if isclose then write_int16 oc 1000 else Lwt.return_unit in
     lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
-  let rec inner_cleanup () =
-    (try_lwt
-       Lwt_stream.next stream >>= send_frame
-     with exn ->
-       Lwt_io.(close ic <&> close oc) >> raise_lwt exn) >>
-    inner_cleanup () in
-  inner_cleanup ()
+  let rec send_forever () =
+    (try_lwt Lwt_stream.next stream >>= send_frame
+    with exn ->
+      (try_lwt Lwt_io.close ic with _ -> return_unit) >>
+      raise_lwt exn
+    ) >>
+    send_forever ()
+  in send_forever ()
 
 let setup_socket = Lwt_io_ext.set_tcp_nodelay
 
-exception No_response_from_remote_server
 exception HTTP_Error of string
 
-let is_upgrade = 
+let is_upgrade =
     let open Re in
     let re = compile (seq [ rep any; no_case (str "upgrade") ]) in
     (function None -> false
             | Some(key) -> execp re key)
 
-let open_connection ?(tls = false) ?(extra_headers = []) uri =
+let open_connection ?tls_authenticator ?(extra_headers = []) uri =
   (* Initialisation *)
   lwt myhostname = Lwt_unix.gethostname () in
   let host = Opt.run_exc (Uri.host uri) in
   let port = Uri.port uri in
   let scheme = Uri.scheme uri in
-  let port, tls = match port, scheme with
-    | None, None -> 80, tls
-    | Some p, _ -> p, tls
-    | None, Some s -> (match s with "https" | "wss" -> 443, true | _ -> 80, tls) in
-
+  lwt default_authenticator =
+    X509_lwt.authenticator `No_authentication_I'M_STUPID in
+  let port, tls_authenticator =
+    match port, scheme with
+    | None, None -> 80, tls_authenticator
+    | Some p, None -> p, tls_authenticator
+    | None, Some s -> (
+        if s = "https" || s = "wss" then
+          443, (if tls_authenticator = None
+                then Some default_authenticator
+                else tls_authenticator)
+        else 80, tls_authenticator
+      )
+    | Some p, Some s ->
+      if s = "https" || s = "wss" then
+        p, Some default_authenticator
+      else
+        p, tls_authenticator
+  in
   let stream_in, push_in   = Lwt_stream.create ()
   and stream_out, push_out = Lwt_stream.create () in
 
   let connect () =
     let open Cohttp in
-    let nonce = base64_encode @@ CK.Random.string myrng 16 in
-    let in_extra_hdrs key = 
+    let nonce = random_string ~base64:true 16 in
+    let in_extra_hdrs key =
       let lkey = String.lowercase key in
       (List.find_all (fun (k,v) -> (String.lowercase k) = lkey) extra_headers) = [] in
     let hdr_list = extra_headers @ List.filter (fun (k,v) -> in_extra_hdrs k)
@@ -294,17 +305,24 @@ let open_connection ?(tls = false) ?(extra_headers = []) uri =
        "Sec-WebSocket-Version" , "13"] in
     let headers = Header.of_list hdr_list in
     let req = Request.make ~headers uri in
-    Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
-    Lwt_unix.handle_unix_error
-      (fun () -> Lwt_io_ext.open_connection ~tls ~setup_socket sockaddr)
-      () >>= fun (ic, oc) ->
+    lwt sockaddr = Lwt_io_ext.sockaddr_of_dns host (string_of_int port) in
+    let fd = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
+    setup_socket fd;
+    lwt (ic, oc) =
+      Lwt_unix.handle_unix_error
+        (function
+          | None -> Lwt_io_ext.open_connection ~fd sockaddr
+          | Some tls_authenticator ->
+            Lwt_io_ext.open_connection ~fd ~host ~tls_authenticator sockaddr)
+        tls_authenticator
+    in
     try_lwt
       Lwt_unix.handle_unix_error
         (fun () -> CU.Request.write (fun _ _ -> Lwt.return ()) req oc) () >>= fun () ->
-      Lwt_unix.handle_unix_error
-        (fun () -> CU.Response.read ic) () >>= (function
+      Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
         | `Ok r -> Lwt.return r
-        | `Eof | `Invalid _ -> raise_lwt No_response_from_remote_server)
+        | `Eof -> raise_lwt End_of_file
+        | `Invalid s -> raise_lwt Failure s)
       >>= fun response ->
       let status = Response.status response in
       let headers = CU.Response.headers response in
@@ -314,35 +332,44 @@ let open_connection ?(tls = false) ?(extra_headers = []) uri =
         (* let _ = C.Header.fold (fun k v () -> Printf.printf "%s: %s\n%!" k v) headers () in *)
         (assert_lwt Response.version response = `HTTP_1_1) >>
         (assert_lwt status = `Switching_protocols) >>
-        (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
+        (assert_lwt Opt.(Header.get headers "upgrade" >|= String.lowercase) =
+         Some "websocket") >>
         (assert_lwt (is_upgrade (C.Header.get headers "connection"))) >>
         (assert_lwt Header.get headers "sec-websocket-accept" =
-         Some (nonce ^ websocket_uuid |> sha1sum |> base64_encode)) >>
-        Lwt_log.notice_f "Connected to %s\n%!" (Uri.to_string uri) >>
+         Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)) >>
+        Lwt_log.notice_f "Connected to %s" (Uri.to_string uri) >>
         Lwt.return (ic, oc)
     with exn ->
-      Lwt_io.(close ic <&> close oc) >> raise_lwt exn
-
+      (try_lwt Lwt_io.close ic with _ -> return_unit) >>
+      raise_lwt exn
   in
   lwt ic, oc = connect () in
   (* ic and oc will be closed by either read_frames or write_frames on
      failure *)
   Lwt.async (fun () ->
-      (read_frames (ic,oc) push_in push_out <&> write_frames ~masked:true stream_out (ic,oc)));
+      (read_frames (ic,oc) push_in push_out <&>
+       send_frames ~masked:true stream_out (ic,oc)));
   Lwt.return (stream_in, push_out)
 
-let with_connection ?(tls = false) ?(extra_headers = []) uri f =
-  lwt stream_in, push_out = open_connection ~tls ~extra_headers uri in
+let with_connection ?tls_authenticator ?(extra_headers = []) uri f =
+  lwt stream_in, push_out =
+    open_connection ?tls_authenticator ~extra_headers uri in
   f (stream_in, push_out)
 
-let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
+let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
   let server_fun (ic, oc) =
     let stream_in, push_in   = Lwt_stream.create ()
     and stream_out, push_out = Lwt_stream.create () in
     lwt request = CU.Request.read ic >>= function
       | `Ok r -> Lwt.return r
-      | `Eof -> Lwt.fail Not_found
-      | `Invalid reason -> Lwt.fail (Failure reason) in
+      | `Eof ->
+        (* Remote endpoint closed connection. No further action necessary here. *)
+        Lwt_log.info ~section "Remote endpoint closed connection" >>
+        raise_lwt End_of_file
+      | `Invalid reason ->
+        Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason >>
+        raise_lwt (Failure reason)
+    in
     let meth    = C.Request.meth request
     and version = C.Request.version request
     and uri     = C.Request.uri request
@@ -351,10 +378,11 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
     lwt () =
       (assert_lwt version = `HTTP_1_1) >>
       (assert_lwt meth = `GET) >>
-      (assert_lwt Opt.(C.Header.get headers "upgrade" >|= String.lowercase) = Some "websocket") >>
+      (assert_lwt Opt.(C.Header.get headers "upgrade" >|=
+                       String.lowercase) = Some "websocket") >>
       (assert_lwt (is_upgrade (C.Header.get headers "connection")))
     in
-    let hash = key ^ websocket_uuid |> sha1sum |> base64_encode in
+    let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";
          "Connection", "Upgrade";
@@ -365,18 +393,14 @@ let establish_server ?(tls = false) ?buffer_size ?backlog sockaddr f =
         ~headers:response_headers () in
     CU.Response.write (fun _ _ -> Lwt.return_unit) response oc >>
     Lwt.pick [read_frames (ic,oc) push_in push_out;
-              write_frames ~masked:false stream_out (ic,oc);
+              send_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
   in
   Lwt.async_exception_hook := (function
       | Lwt_stream.Empty -> () (* Raised by read_frame when an endpoint closes the connection *)
-      | exn -> Printf.printf "EXN: %s\n%!" (Printexc.to_string exn));
+      | exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
   Lwt_io_ext.establish_server
-    ~setup_server_socket:setup_socket
+    ?certificate
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> Lwt.async (fun () ->
-         let server_t = server_fun (ic,oc)
-         in Lwt.on_termination server_t (fun () -> Lwt_io.(close ic <&> close oc) |> Lwt.ignore_result);
-         server_t
-       ))
+    (fun (ic,oc) -> server_fun (ic,oc))

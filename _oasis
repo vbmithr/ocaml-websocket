@@ -11,7 +11,7 @@ AlphaFeatures: compiled_setup_ml
 Library websocket
   Path: lib
   Modules: Lwt_io_ext, Websocket
-  BuildDepends: lwt, lwt.ssl, lwt.syntax, cohttp.lwt, cryptokit, ocplib-endian, optcomp
+  BuildDepends: lwt, lwt.syntax, cohttp.lwt, ocplib-endian, tls.lwt
   CompiledObject: best
 
 Executable wscat
