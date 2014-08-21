@@ -53,8 +53,6 @@ module Opt = struct
     | Some v -> v
 end
 
-exception Not_implemented
-
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 module Frame = struct
@@ -208,7 +206,6 @@ let read_frames (ic,oc) push_to_client push_to_remote =
      with exn ->
        Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
        (try push_to_client None with _ -> ());
-       (try_lwt Lwt_io.close ic with _ -> return_unit) >>
        raise_lwt exn
     ) >>
     read_forever () in
@@ -246,11 +243,7 @@ let send_frames ~masked stream (ic,oc) =
     lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
     Lwt_io.flush oc in
   let rec send_forever () =
-    (try_lwt Lwt_stream.next stream >>= send_frame
-    with exn ->
-      (try_lwt Lwt_io.close ic with _ -> return_unit) >>
-      raise_lwt exn
-    ) >>
+    Lwt_stream.next stream >>= send_frame >>
     send_forever ()
   in send_forever ()
 
@@ -344,11 +337,14 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
       raise_lwt exn
   in
   lwt ic, oc = connect () in
-  (* ic and oc will be closed by either read_frames or write_frames on
-     failure *)
   Lwt.async (fun () ->
-      (read_frames (ic,oc) push_in push_out <&>
-       send_frames ~masked:true stream_out (ic,oc)));
+      (
+        try_lwt
+          read_frames (ic,oc) push_in push_out <&>
+          send_frames ~masked:true stream_out (ic,oc)
+        finally
+          (try_lwt Lwt_io.close ic with _ -> return_unit)
+      ));
   Lwt.return (stream_in, push_out)
 
 let with_connection ?tls_authenticator ?(extra_headers = []) uri f =
@@ -396,11 +392,16 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
               send_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
   in
-  Lwt.async_exception_hook := (function
-      | Lwt_stream.Empty -> () (* Raised by read_frame when an endpoint closes the connection *)
-      | exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
+  Lwt.async_exception_hook :=
+    (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
   Lwt_io_ext.establish_server
     ?certificate
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) -> server_fun (ic,oc))
+    (fun (ic,oc) ->
+       try_lwt server_fun (ic,oc)
+       with End_of_file ->
+         (* Client closed connection. *)
+         Lwt_log.info ~section "Client closed connection"
+       finally (try_lwt Lwt_io.close ic with _ -> return_unit)
+    )

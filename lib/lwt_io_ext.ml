@@ -3,29 +3,32 @@ open Lwt_io
 
 let section = Lwt_log.Section.make "lwt_io_ext"
 
+let trace sexp =
+  Lwt_log.ign_debug_f "%s" (Sexplib.Sexp.to_string_hum sexp)
+
 let open_connection ?tls_authenticator ?(host="") ?fd ?buffer_size sockaddr =
   let fd = match fd with
     | None -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0
     | Some fd -> fd
   in
-  match tls_authenticator with
-  | None ->
+  try_lwt
+    match tls_authenticator with
+    | None ->
       Lwt_unix.connect fd sockaddr >>= fun () ->
       (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
       (of_fd ?buffer_size ~mode:input fd,
        of_fd ?buffer_size ~mode:output fd)
-  |> return
+      |> return
 
-  | Some authenticator ->
-    let config = Tls.Config.client ~authenticator () in
-    try_lwt
+    | Some authenticator ->
+      let config = Tls.Config.client ~authenticator () in
       Lwt_unix.connect fd sockaddr >>= fun () ->
       (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-      Tls_lwt.(Unix.client_of_fd ~host config fd >|= of_t)
-    with exn ->
-      (try_lwt Lwt_unix.close fd with _ -> return_unit) >>
-      Lwt_log.warning ~exn ~section "open_connection" >>
-      raise_lwt exn
+      Tls_lwt.(Unix.client_of_fd ~trace ~host config fd >|= of_t)
+  with exn ->
+    (try_lwt Lwt_unix.close fd with _ -> return_unit) >>
+    Lwt_log.warning ~exn ~section "Error opening connection" >>
+    raise_lwt exn
 
 let with_connection ?tls_authenticator ?fd ?buffer_size sockaddr f =
   lwt ic, oc = open_connection ?tls_authenticator ?fd ?buffer_size sockaddr in
