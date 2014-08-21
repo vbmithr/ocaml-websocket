@@ -21,7 +21,7 @@ let open_connection ?tls_authenticator ?(host="") ?fd ?buffer_size sockaddr =
       |> return
 
     | Some authenticator ->
-      let config = Tls.Config.client ~authenticator () in
+      let config = Tls.Config.(client ~authenticator ~ciphers:Ciphers.supported ()) in
       Lwt_unix.connect fd sockaddr >>= fun () ->
       (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
       Tls_lwt.(Unix.client_of_fd ~trace ~host config fd >|= of_t)
