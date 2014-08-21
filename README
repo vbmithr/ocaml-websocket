@@ -7,15 +7,10 @@ Webpage: https://github.com/vbmithr/ocaml-websocket
 Dependencies:
 =============
 
-* ssl
+* tls
 * lwt
 * cohttp
-* cryptokit
 * ocplib-endian
-
-You can install those dependencies with OPAM:
-
-opam install --yes ssl lwt cryptokit cohttp ocplib-endian
 
 Bugs:
 =====
