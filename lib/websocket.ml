@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2014 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above

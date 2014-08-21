@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2014 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,7 +76,8 @@ val establish_server :
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
-  (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) -> Lwt_io_ext.server
+  (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) ->
+  Lwt_io_ext.server
 (** Function in the spirit of [Lwt_io.establish_server], except that
     the provided function takes a stream and a push function instead
     of two channels.  Beware that when the Lwt thread returned by this
