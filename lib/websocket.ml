@@ -118,29 +118,28 @@ let int_of_opcode = function
   | `Nonctrl i    -> i
 
 let xor mask msg =
-  for i = 0 to String.length msg - 1 do (* masking msg to send *)
-    msg.[i] <- Char.chr @@
-      Char.code mask.[i mod 4] lxor Char.code msg.[i]
+  for i = 0 to Bytes.length msg - 1 do (* masking msg to send *)
+    Bytes.set msg i Char.(code mask.[i mod 4] lxor code msg.[i] |> chr)
   done
 
-let read_int16 ic =
-  let buf = String.create 2 in
+let read_uint16 ic =
+  let buf = Bytes.create 2 in
   Lwt_io.read_into_exactly ic buf 0 2 >|= fun () ->
-  EndianString.BigEndian.get_int16 buf 0
+  EndianBytes.BigEndian.get_uint16 buf 0
 
 let read_int64 ic =
-  let buf = String.create 8 in
+  let buf = Bytes.create 8 in
   Lwt_io.read_into_exactly ic buf 0 8 >|= fun () ->
-  EndianString.BigEndian.get_int64 buf 0
+  EndianBytes.BigEndian.get_int64 buf 0
 
 let write_int16 oc v =
-  let buf = String.create 2 in
-  EndianString.BigEndian.set_int16 buf 0 v;
+  let buf = Bytes.create 2 in
+  EndianBytes.BigEndian.set_int16 buf 0 v;
   Lwt_io.write oc buf
 
 let write_int64 oc v =
-  let buf = String.create 8 in
-  EndianString.BigEndian.set_int64 buf 0 v;
+  let buf = Bytes.create 8 in
+  EndianBytes.BigEndian.set_int64 buf 0 v;
   Lwt_io.write oc buf
 
 let is_bit_set idx v =
@@ -157,12 +156,12 @@ exception Close_frame_received
 (* Should an exception arise in the body of this function, ic and oc
    will be closed *)
 let read_frames (ic,oc) push_to_client push_to_remote =
-  let hdr = String.create 2 in
-  let mask = String.create 4 in
+  let hdr = Bytes.create 2 in
+  let mask = Bytes.create 4 in
   let rec read_frame () =
     lwt () = Lwt_io.read_into_exactly ic hdr 0 2 in
-    let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
-    let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
+    let hdr_part1 = EndianBytes.BigEndian.get_int8 hdr 0 in
+    let hdr_part2 = EndianBytes.BigEndian.get_int8 hdr 1 in
     let final = is_bit_set 7 hdr_part1 in
     let extension = int_value 4 3 hdr_part1 in
     let opcode = int_value 0 4 hdr_part1 in
@@ -171,14 +170,14 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     let opcode = opcode_of_int opcode in
     lwt payload_len = (match length with
         | i when i < 126 -> Lwt.return @@ Int64.of_int i
-        | 126            -> read_int16 ic >|= Int64.of_int
+        | 126            -> read_uint16 ic >|= Int64.of_int
         | 127            -> read_int64 ic
         | _              -> raise_lwt (Failure "internal error"))
       >|= Int64.to_int
     in
     lwt () = if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit in
     (* Create a buffer that will be passed to the push function *)
-    let content = String.create payload_len in
+    let content = Bytes.create payload_len in
     lwt () = Lwt_io.read_into_exactly ic content 0 payload_len in
     let () = if masked then xor mask content in
     let () = match opcode with
@@ -187,7 +186,7 @@ let read_frames (ic,oc) push_to_client push_to_remote =
         push_to_client (Some (Frame.of_string ~opcode ~extension ~final content))
       | `Close -> (* Immediately echo, pass this last message to the user, and close the stream *)
         (if payload_len > 2 then
-           let status_code = EndianString.BigEndian.get_int16 content 0 in
+           let status_code = EndianBytes.BigEndian.get_int16 content 0 in
            push_to_remote (Some (Frame.of_substring ~opcode:(`Close_status status_code) content 0 2));
            push_to_client (Some (Frame.of_string ~opcode:(`Close_status status_code) ~extension ~final content))
          else
@@ -228,19 +227,16 @@ let send_frames ~masked stream (ic,oc) =
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 masked in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
-    let hdr_string = String.create 2 in
-    let () = EndianString.BigEndian.set_int16 hdr_string 0 hdr in
-    lwt () = Lwt_io.write_from_exactly oc hdr_string 0 2 in
-    lwt () =
-      (match len with
-        | n when n < 126        -> Lwt.return ()
-        | n when n < (1 lsl 16) -> write_int16 oc n
-        | n                     -> Int64.of_int n |> write_int64 oc)
-    in
-    lwt () = if masked then Lwt_io.write_from_exactly oc mask 0 4
-        >|= fun () -> xor mask (Frame.content fr) else Lwt.return () in
-    lwt () = if isclose then write_int16 oc 1000 else Lwt.return_unit in
-    lwt () = Lwt_io.write_from_exactly oc (Frame.content fr) 0 len in
+    write_int16 oc hdr >>
+    (match len with
+     | n when n < 126        -> return_unit
+     | n when n < (1 lsl 16) -> write_int16 oc n
+     | n                     -> Int64.of_int n |> write_int64 oc) >>
+    (if masked
+    then Lwt_io.write_from_exactly oc mask 0 4 >> return @@ xor mask (Frame.content fr)
+    else return_unit) >>
+    (if isclose then write_int16 oc 1000 else Lwt.return_unit) >>
+    Lwt_io.write_from_exactly oc (Frame.content fr) 0 len >>
     Lwt_io.flush oc in
   let rec send_forever () =
     Lwt_stream.next stream >>= send_frame >>
@@ -311,7 +307,7 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
     in
     try_lwt
       Lwt_unix.handle_unix_error
-        (fun () -> CU.Request.write (fun _ _ -> Lwt.return ()) req oc) () >>= fun () ->
+        (fun () -> CU.Request.write (fun _ _ -> return_unit) req oc) () >>= fun () ->
       Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
         | `Ok r -> Lwt.return r
         | `Eof -> raise_lwt End_of_file
