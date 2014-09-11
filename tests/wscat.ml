@@ -5,13 +5,15 @@ let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
       Lwt_io.read_line Lwt_io.stdin >>= fun content ->
-      Lwt.wrap (fun () -> push (Some (Frame.of_string content)))
+      Lwt.wrap (fun () -> push (Some (Frame.of_string ~content ())))
       >>= read_fun in
     let rec write_fun () =
       Lwt_stream.next stream >>= fun fr ->
-      Lwt_io.printf "%s\n> " (Frame.content fr)
+      (match Frame.content fr with
+       | None -> return_unit
+       | Some content -> Lwt_io.printf "%s\n> " content)
       >>= write_fun in
-    Lwt_io.printf "> " >>
+    Lwt_io.printf "> " >>= fun () ->
     read_fun () <&> write_fun ()
   in
   with_connection uri cat_fun
@@ -44,17 +46,17 @@ let _ =
   Arg.parse speclist anon_fun usage_msg;
 
   let main () =
-    Tls_lwt.rng_init () >>
+    Tls_lwt.rng_init () >>= fun () ->
     match !server_port, !endpoint_address with
     | p, "" when p <> "" ->
       begin
-        lwt sa = Lwt_io_ext.sockaddr_of_dns "localhost" !server_port in
+        Lwt_io_ext.sockaddr_of_dns "localhost" !server_port >>= fun sa ->
         match !cert_dir with
         | None -> ignore (server sa); wait_forever ()
         | Some dir ->
           let cert = dir ^ "/server.crt" in
           let priv_key = dir ^ "/server.key" in
-          lwt certificate = X509_lwt.private_of_pems ~cert ~priv_key in
+          X509_lwt.private_of_pems ~cert ~priv_key >>= fun certificate ->
           ignore (server ~certificate sa); wait_forever ()
       end
     | _, endpoint when endpoint <> "" ->

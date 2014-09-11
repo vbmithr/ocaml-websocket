@@ -27,17 +27,18 @@
 *)
 
 module Frame : sig
-  type opcode =
-    [ `Continuation
-    | `Text
-    | `Binary
-    | `Close
-    | `Close_status of int
-    | `Ping
-    | `Pong
-    | `Ctrl of int
-    | `Nonctrl of int
-    ]
+  module Opcode : sig
+    type t =
+      | Continuation
+      | Text
+      | Binary
+      | Close
+      | Close_status of int
+      | Ping
+      | Pong
+      | Ctrl of int
+      | Nonctrl of int
+  end
   (** Type representing websocket opcodes *)
 
   type t
@@ -45,12 +46,16 @@ module Frame : sig
 
   (** Accessors for type t *)
 
-  val opcode    : t -> opcode
+  val opcode    : t -> Opcode.t
   val extension : t -> int
   val final     : t -> bool
-  val content   : t -> string
+  val content   : t -> string option
 
-  val of_string : ?opcode:opcode -> ?extension:int -> ?final:bool -> string -> t
+  val of_string :
+    ?opcode:Opcode.t ->
+    ?extension:int ->
+    ?final:bool ->
+    ?content:string -> unit -> t
   (** Frame creation *)
 end
 
