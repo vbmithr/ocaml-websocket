@@ -8,9 +8,7 @@ tags: [
 ]
 build: [
   [make]
-  [make "install"]
 ]
-remove: [["ocamlfind" "remove" "websocket"]]
 depends: [
   "lwt"
   "tls"

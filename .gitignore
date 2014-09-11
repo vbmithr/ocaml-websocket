@@ -1,6 +1,4 @@
 _build
-setup.data
-setup.log
-setup.exe
 *.native
 *.byte
+*.install
