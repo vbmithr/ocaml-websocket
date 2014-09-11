@@ -1,46 +1,19 @@
-# OASIS_START
-# DO NOT EDIT (digest: 46f8bd9984975bd4727bed22d0876cd2)
+PKG=websocket
+PREFIX=`opam config var prefix`
+BUILDOPTS=native=true native-dynlink=true
 
-SETUP = ./setup.exe
+all: build
 
-build: setup.data $(SETUP)
-	$(SETUP) -build $(BUILDFLAGS)
+build:
+	ocaml pkg/build.ml $(BUILDOPTS)
 
-doc: setup.data $(SETUP) build
-	$(SETUP) -doc $(DOCFLAGS)
+install: build
+	opam-installer --prefix=$(PREFIX) $(PKG).install
 
-test: setup.data $(SETUP) build
-	$(SETUP) -test $(TESTFLAGS)
+uninstall: $(PKG).install
+	opam-installer -u --prefix=$(PREFIX) $(PKG).install
 
-all: $(SETUP)
-	$(SETUP) -all $(ALLFLAGS)
+PHONY: clean
 
-install: setup.data $(SETUP)
-	$(SETUP) -install $(INSTALLFLAGS)
-
-uninstall: setup.data $(SETUP)
-	$(SETUP) -uninstall $(UNINSTALLFLAGS)
-
-reinstall: setup.data $(SETUP)
-	$(SETUP) -reinstall $(REINSTALLFLAGS)
-
-clean: $(SETUP)
-	$(SETUP) -clean $(CLEANFLAGS)
-
-distclean: $(SETUP)
-	$(SETUP) -distclean $(DISTCLEANFLAGS)
-	$(RM) $(SETUP)
-
-setup.data: $(SETUP)
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-configure: $(SETUP)
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-setup.exe: setup.ml
-	ocamlfind ocamlopt -o $@ $< || ocamlfind ocamlc -o $@ $< || true
-	$(RM) setup.cmi setup.cmo setup.cmx setup.o
-
-.PHONY: build doc test all install uninstall reinstall clean distclean configure
-
-# OASIS_STOP
+clean:
+	ocamlbuild -clean

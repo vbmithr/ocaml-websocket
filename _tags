@@ -1,39 +1,13 @@
-# OASIS_START
-# DO NOT EDIT (digest: fed60a082d6b04b8e32be75d61545562)
-# Ignore VCS directories, you can use the same kind of rule outside
-# OASIS_START/STOP if you want to exclude directories that contains
-# useless stuff for the build process
-<**/.svn>: -traverse
-<**/.svn>: not_hygienic
-".bzr": -traverse
-".bzr": not_hygienic
-".hg": -traverse
-".hg": not_hygienic
-".git": -traverse
-".git": not_hygienic
-"_darcs": -traverse
-"_darcs": not_hygienic
-# Library websocket
-"lib/websocket.cmxs": use_websocket
-<lib/*.ml{,i}>: pkg_cohttp.lwt
-<lib/*.ml{,i}>: pkg_lwt
-<lib/*.ml{,i}>: pkg_lwt.syntax
-<lib/*.ml{,i}>: pkg_ocplib-endian
-<lib/*.ml{,i}>: pkg_tls.lwt
-# Executable wscat
-<tests/wscat.{native,byte}>: pkg_cohttp.lwt
-<tests/wscat.{native,byte}>: pkg_lwt
-<tests/wscat.{native,byte}>: pkg_lwt.syntax
-<tests/wscat.{native,byte}>: pkg_ocplib-endian
-<tests/wscat.{native,byte}>: pkg_tls.lwt
-<tests/wscat.{native,byte}>: use_websocket
-<tests/*.ml{,i}>: pkg_cohttp.lwt
-<tests/*.ml{,i}>: pkg_lwt
-<tests/*.ml{,i}>: pkg_lwt.syntax
-<tests/*.ml{,i}>: pkg_ocplib-endian
-<tests/*.ml{,i}>: pkg_tls.lwt
-<tests/*.ml{,i}>: use_websocket
-# OASIS_STOP
-true: annot
-<lib/*>: syntax_camlp4o, pkg_lwt.syntax, lwtbacktrace
-<tests/*>: syntax_camlp4o, pkg_lwt.syntax, lwtbacktrace
+<lib>: include
+<tests>: include
+
+<tests/wscat.*>: package(lwt), \
+		 package(tls.lwt), \
+		 package(uri), \
+		 package(cohttp.lwt)
+
+<lib/*.*>: package(lwt), \
+	   package(sexplib), \
+	   package(tls.lwt), \
+	   package(uri), \
+	   package(cohttp.lwt)
