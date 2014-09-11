@@ -3,6 +3,9 @@
 * Replace Cryptokit by Nocrypto
 * Replace Lwt_ssl by Tls_lwt for TLS
 * Add TLS support for the websocket server
+* Replace OASIS by topkg
+* Removing camlp4
+* Minor interface changes
 
 0.8.2 (2014-06-09):
 * [doc] Add a warning in the doc of `establish_server`

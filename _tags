@@ -1,13 +1,7 @@
 <lib>: include
 <tests>: include
 
-<tests/wscat.*>: package(lwt), \
+<**/*.*>: package(lwt), \
 		 package(tls.lwt), \
 		 package(uri), \
 		 package(cohttp.lwt)
-
-<lib/*.*>: package(lwt), \
-	   package(sexplib), \
-	   package(tls.lwt), \
-	   package(uri), \
-	   package(cohttp.lwt)

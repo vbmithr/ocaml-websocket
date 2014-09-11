@@ -1,0 +1,20 @@
+opam-version: "1.2"
+name: "websocket"
+version: "0.9"
+maintainer: "vb@luminar.eu.org"
+tags: [
+  "org:mirage"
+  "org:xapi-project"
+]
+build: [
+  [make]
+  [make "install"]
+]
+remove: [["ocamlfind" "remove" "websocket"]]
+depends: [
+  "lwt"
+  "tls"
+  "cohttp" {>= "0.10.0"}
+  "ocplib-endian" {>= "0.4"}
+]
+ocaml-version: [>="4.02.0"]
