@@ -10,8 +10,8 @@ build: [
   [make]
 ]
 depends: [
-  "lwt"
-  "tls"
+  "lwt" {>= "2.4.6"}
+  "tls" {>= "0.2"}
   "cohttp" {>= "0.10.0"}
   "ocplib-endian" {>= "0.4"}
 ]
