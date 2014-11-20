@@ -320,7 +320,7 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
          catch
            (fun () ->
               Lwt_unix.handle_unix_error
-                (fun () -> CU.Request.write (fun _ _ -> return_unit) req oc) () >>= fun () ->
+                (fun () -> CU.Request.write (fun _ -> Lwt.return_unit) req oc) () >>= fun () ->
               Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
                   | `Ok r -> return r
                   | `Eof -> fail End_of_file
@@ -402,7 +402,7 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
         ~status:`Switching_protocols
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
-    CU.Response.write (fun _ _ -> Lwt.return_unit) response oc >>= fun () ->
+    CU.Response.write (fun _ -> Lwt.return_unit) response oc >>= fun () ->
     Lwt.pick [read_frames (ic,oc) push_in push_out;
               send_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
