@@ -175,43 +175,37 @@ let read_frames (ic,oc) push_to_client push_to_remote =
       let () = if masked then xor mask content in
       let () = match opcode with
         | Opcode.Ping ->
-            (* Immediately reply with a pong, and pass the message to
-               the user *)
-            push_to_remote (Some (Frame.of_string ~opcode:Opcode.Pong ~extension ~final ~content ()));
-            push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
+          (* Immediately reply with a pong, and pass the message to
+             the user *)
+          push_to_remote (Some (Frame.of_string ~opcode:Opcode.Pong ~extension ~final ~content ()));
+          push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
         | Opcode.Close ->
-            (* Immediately echo, pass this last message to the user,
-               and close the stream *)
-            (if payload_len > 2 then
-               let status_code = EndianBytes.BigEndian.get_int16 content 0 in
-               push_to_remote (Some (Frame.of_substring
-                                       ~opcode:(Opcode.Close_status status_code)
-                                       content 0 2));
-               push_to_client (Some (Frame.of_string
-                                       ~opcode:(Opcode.Close_status status_code)
-                                       ~ extension ~final ~content ()))
-             else
-               (push_to_remote (Some (Frame.of_string ~opcode:Opcode.Close ()));
-                push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ())))
-            );
-            raise Close_frame_received
+          (* Immediately echo, pass this last message to the user,
+             and close the stream *)
+          (if payload_len > 2 then
+             let status_code = EndianBytes.BigEndian.get_int16 content 0 in
+             push_to_remote (Some (Frame.of_substring
+                                     ~opcode:(Opcode.Close_status status_code)
+                                     content 0 2));
+             push_to_client (Some (Frame.of_string
+                                     ~opcode:(Opcode.Close_status status_code)
+                                     ~ extension ~final ~content ()))
+           else
+             (push_to_remote (Some (Frame.of_string ~opcode:Opcode.Close ()));
+              push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ())))
+          );
+          raise Close_frame_received
         | _ ->
-            push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
+          push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
       in
       Lwt.return_unit
   in
   let rec read_forever () =
-    (try
-       catch
-         (fun () -> read_frame ())
-         (fun exn ->
-            Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
-            (try push_to_client None with _ -> ());
-            fail exn
-         )
-     with exn -> fail exn)
-    >>= fun () ->
-    read_forever () in
+    (try%lwt read_frame ()
+     with exn ->
+       Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
+       (try push_to_client None with _ -> ()); fail exn)
+    >>= fun () -> read_forever () in
   read_forever ()
 
 (* Should an exception arise in the body of this function, ic and oc
@@ -261,10 +255,10 @@ let setup_socket = Lwt_io_ext.set_tcp_nodelay
 exception HTTP_Error of string
 
 let is_upgrade =
-    let open Re in
-    let re = compile (seq [ rep any; no_case (str "upgrade") ]) in
-    (function None -> false
-            | Some(key) -> execp re key)
+  let open Re in
+  let re = compile (seq [ rep any; no_case (str "upgrade") ]) in
+  (function None -> false
+          | Some(key) -> execp re key)
 
 let open_connection ?tls_authenticator ?(extra_headers = []) uri =
   (* Initialisation *)
@@ -300,72 +294,66 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
       let lkey = String.lowercase key in
       (List.find_all (fun (k,v) -> (String.lowercase k) = lkey) extra_headers) = [] in
     let hdr_list = extra_headers @ List.filter (fun (k,v) -> in_extra_hdrs k)
-      ["Upgrade"               , "websocket";
-       "Connection"            , "Upgrade";
-       "Sec-WebSocket-Key"     , nonce;
-       "Sec-WebSocket-Version" , "13"] in
+                     ["Upgrade"               , "websocket";
+                      "Connection"            , "Upgrade";
+                      "Sec-WebSocket-Key"     , nonce;
+                      "Sec-WebSocket-Version" , "13"] in
     let headers = Header.of_list hdr_list in
     let req = Request.make ~headers uri in
     Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
-    let fd = Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
+    let fd = Lwt_unix.socket
+        (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
     setup_socket fd;
     Lwt_unix.handle_unix_error
       (function
         | None -> Lwt_io_ext.open_connection ~fd sockaddr
         | Some tls_authenticator ->
-            Lwt_io_ext.open_connection ~fd ~host ~tls_authenticator sockaddr)
+          Lwt_io_ext.open_connection ~fd ~host ~tls_authenticator sockaddr)
       tls_authenticator >>= fun (ic, oc) ->
     let drain_handshake () =
-      (try
-         catch
-           (fun () ->
-              Lwt_unix.handle_unix_error
-                (fun () -> CU.Request.write (fun _ _ -> return_unit) req oc) () >>= fun () ->
-              Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
-                  | `Ok r -> return r
-                  | `Eof -> fail End_of_file
-                  | `Invalid s -> fail @@ Failure s)
-              >>= fun response ->
-              let status = Response.status response in
-              let headers = CU.Response.headers response in
-              if Code.(is_error @@ code_of_status status)
-              then
-                fail @@ HTTP_Error Code.(string_of_status status)
-              else
-                (
-                  assert (Response.version response = `HTTP_1_1);
-                  assert (status = `Switching_protocols);
-                  assert (Opt.(Header.get headers "upgrade" >|= String.lowercase) =
-                  Some "websocket");
-                  assert (is_upgrade @@ C.Header.get headers "connection");
-                  assert (Header.get headers "sec-websocket-accept" =
-                  Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum));
-                  Lwt_log.notice_f "Connected to %s" (Uri.to_string uri)
-                )
-           )
-           (fun exn ->
-              Lwt_io_ext.(safe_close ic) >>= fun () -> fail exn
-           )
-       with exn -> fail exn)
+      try%lwt
+        Lwt_unix.handle_unix_error
+        (fun () -> CU.Request.write
+            (fun writer -> return_unit) req oc) () >>= fun () ->
+        Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
+            | `Ok r -> return r
+            | `Eof -> fail End_of_file
+            | `Invalid s -> fail @@ Failure s)
+        >>= fun response ->
+        let status = Response.status response in
+        let headers = CU.Response.headers response in
+        if Code.(is_error @@ code_of_status status)
+        then
+          fail @@ HTTP_Error Code.(string_of_status status)
+        else
+          (
+            assert (Response.version response = `HTTP_1_1);
+            assert (status = `Switching_protocols);
+            assert (Opt.(Header.get headers "upgrade" >|= String.lowercase) =
+                    Some "websocket");
+            assert (is_upgrade @@ C.Header.get headers "connection");
+            assert (Header.get headers "sec-websocket-accept" =
+                    Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum));
+            Lwt_log.notice_f "Connected to %s" (Uri.to_string uri)
+          )
+      with exn -> Lwt_io_ext.(safe_close ic) >>= fun () -> fail exn
+
     in
     drain_handshake () >>= fun () ->
     return (ic, oc)
   in
   connect () >>= fun (ic, oc) ->
-  async
-    (fun () ->
-       (
-         finalize
-           (fun () ->
-              read_frames (ic,oc) push_in push_out <&>
-              send_frames ~masked:true stream_out (ic,oc)
-           )
-           (fun () -> Lwt_io_ext.safe_close ic)
-       ));
+  async (fun () ->
+      (try%lwt join
+        [read_frames (ic,oc) push_in push_out;
+         send_frames ~masked:true stream_out (ic,oc)]
+       with exn -> raise exn
+      ) [%finally Lwt_io_ext.safe_close ic]);
   Lwt.return (stream_in, push_out)
 
 let with_connection ?tls_authenticator ?(extra_headers = []) uri f =
-  open_connection ?tls_authenticator ~extra_headers uri >>= fun (stream_in, push_out) ->
+  open_connection
+    ?tls_authenticator ~extra_headers uri >>= fun (stream_in, push_out) ->
   f (stream_in, push_out)
 
 let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
@@ -402,7 +390,7 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
         ~status:`Switching_protocols
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
-    CU.Response.write (fun _ _ -> Lwt.return_unit) response oc >>= fun () ->
+    CU.Response.write (fun writer -> return_unit) response oc >>= fun () ->
     Lwt.pick [read_frames (ic,oc) push_in push_out;
               send_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
@@ -414,14 +402,9 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
     (fun (ic,oc) ->
-       finalize
-         (fun () ->
-            catch
-              (fun () -> server_fun (ic,oc))
-              (function
-                | End_of_file -> Lwt_log.info ~section "Client closed connection"
-                | exn -> fail exn
-              )
-         )
-         (fun () -> Lwt_io_ext.safe_close ic)
+       (try%lwt server_fun (ic,oc)
+        with
+        | End_of_file -> Lwt_log.info ~section "Client closed connection"
+        | exn -> fail exn
+       ) [%finally Lwt_io_ext.safe_close ic]
     )

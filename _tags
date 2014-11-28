@@ -2,6 +2,7 @@
 <tests>: include
 
 <**/*.*>: package(lwt), \
-		 package(tls.lwt), \
-		 package(uri), \
-		 package(cohttp.lwt)
+	  package(lwt.ppx), \
+	  package(tls.lwt), \
+	  package(uri), \
+	  package(cohttp.lwt)
