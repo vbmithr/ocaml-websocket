@@ -1,9 +1,8 @@
 PKG websocket
-S lib/.
-S tests/.
+S lib
+S tests
 B _build/lib
 B _build/tests
-PKG findlib
 PKG lwt.unix
 PKG lwt.ppx
 PKG cohttp

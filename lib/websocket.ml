@@ -101,16 +101,18 @@ module Frame = struct
   let content f   = f.content
 
   let of_string ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) ?content () =
-    { opcode; extension; final; content }
+    { opcode; extension; final; content = content }
 
-  let of_substring ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) content pos len =
-    { opcode; extension; final; content=Some (String.sub content pos len) }
+  let of_bytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) ?content () =
+    { opcode; extension; final; content = Opt.map content Bytes.unsafe_to_string }
+
+  let of_subbytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) content pos len =
+    { opcode; extension; final; content=Some Bytes.(sub content pos len |> unsafe_to_string ) }
 end
-
 
 let xor mask msg =
   for i = 0 to Bytes.length msg - 1 do (* masking msg to send *)
-    Bytes.set msg i Char.(code mask.[i mod 4] lxor code msg.[i] |> chr)
+    Bytes.set msg i Char.(code mask.[i mod 4] lxor code (Bytes.get msg i) |> chr)
   done
 
 let read_uint16 ic =
@@ -126,12 +128,12 @@ let read_int64 ic =
 let write_int16 oc v =
   let buf = Bytes.create 2 in
   EndianBytes.BigEndian.set_int16 buf 0 v;
-  Lwt_io.write oc buf
+  Lwt_io.write oc (buf |> Bytes.unsafe_to_string)
 
 let write_int64 oc v =
   let buf = Bytes.create 8 in
   EndianBytes.BigEndian.set_int64 buf 0 v;
-  Lwt_io.write oc buf
+  Lwt_io.write oc (buf |> Bytes.unsafe_to_string)
 
 let is_bit_set idx v =
   (v lsr idx) land 1 = 1
@@ -172,31 +174,31 @@ let read_frames (ic,oc) push_to_client push_to_remote =
       (* Create a buffer that will be passed to the push function *)
       let content = Bytes.create payload_len in
       Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
-      let () = if masked then xor mask content in
+      let () = if masked then xor (Bytes.unsafe_to_string mask) content in
       let () = match opcode with
         | Opcode.Ping ->
           (* Immediately reply with a pong, and pass the message to
              the user *)
-          push_to_remote (Some (Frame.of_string ~opcode:Opcode.Pong ~extension ~final ~content ()));
-          push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
+          push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
+          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
         | Opcode.Close ->
           (* Immediately echo, pass this last message to the user,
              and close the stream *)
           (if payload_len > 2 then
              let status_code = EndianBytes.BigEndian.get_int16 content 0 in
-             push_to_remote (Some (Frame.of_substring
+             push_to_remote (Some (Frame.of_subbytes
                                      ~opcode:(Opcode.Close_status status_code)
                                      content 0 2));
-             push_to_client (Some (Frame.of_string
+             push_to_client (Some (Frame.of_bytes
                                      ~opcode:(Opcode.Close_status status_code)
                                      ~ extension ~final ~content ()))
            else
-             (push_to_remote (Some (Frame.of_string ~opcode:Opcode.Close ()));
-              push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ())))
+             (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
+              push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ())))
           );
           raise Close_frame_received
         | _ ->
-          push_to_client (Some (Frame.of_string ~opcode ~extension ~final ~content ()))
+          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
       in
       Lwt.return_unit
   in
@@ -214,7 +216,9 @@ let send_frames ~masked stream (ic,oc) =
   let open Frame in
   let send_frame fr =
     let mask = random_string 4 in
-    let len = match Frame.content fr with None -> 0 | Some s -> String.length s in
+    let content = Opt.(run (Bytes.create 0) @@
+                       map (Frame.content fr) Bytes.unsafe_of_string) in
+    let len = Bytes.length content in
     let opcode = Frame.(opcode fr |> Opcode.to_enum) in
     let isclose = Frame.opcode fr = Opcode.Close in
     let payload_len = if isclose then len + 2 else len in
@@ -231,19 +235,13 @@ let send_frames ~masked stream (ic,oc) =
      | n when n < 126        -> return_unit
      | n when n < (1 lsl 16) -> write_int16 oc n
      | n                     -> Int64.of_int n |> write_int64 oc) >>= fun () ->
-    (if masked
-     then
-       begin
-         (match Frame.content fr with
-          | None -> ()
-          | Some content -> xor mask content);
-         Lwt_io.write_from_exactly oc mask 0 4
-       end
+    (if masked && len > 0 then begin
+        xor mask content;
+        Lwt_io.write_from_exactly oc (Bytes.unsafe_of_string mask) 0 4
+      end
      else return_unit) >>= fun () ->
     (if isclose then write_int16 oc 1000 else Lwt.return_unit) >>= fun () ->
-    (match Frame.content fr with
-     | None -> return_unit
-     | Some content -> Lwt_io.write_from_exactly oc content 0 len) >>= fun () ->
+    Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
     Lwt_io.flush oc in
   let rec send_forever () =
     Lwt_stream.next stream >>= send_frame >>= fun () ->

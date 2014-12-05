@@ -1,3 +1,5 @@
+true: bin_annot, debug, safe_string
+
 <lib>: include
 <tests>: include
 
