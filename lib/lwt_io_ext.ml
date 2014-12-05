@@ -19,36 +19,26 @@ let safe_close ic =
 let open_connection ?tls_authenticator ?(host="") ?fd ?buffer_size sockaddr =
   let fd = match fd with
     | None -> Lwt_unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0
-    | Some fd -> fd
-  in
-  try
-    catch
-      (fun () ->
-         match tls_authenticator with
-         | None ->
-             Lwt_unix.connect fd sockaddr >>= fun () ->
-             (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-             (of_fd ?buffer_size ~mode:input fd,
-              of_fd ?buffer_size ~mode:output fd)
-             |> return
-         | Some authenticator ->
-             let config = Tls.Config.(client ~authenticator ~ciphers:Ciphers.supported ()) in
-             Lwt_unix.connect fd sockaddr >>= fun () ->
-             (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
-             Tls_lwt.(Unix.client_of_fd ~trace ~host config fd >|= of_t)
-      )
-      (fun exn ->
-         safe_close_fd fd >>= fun () ->
-         Lwt_log.warning ~exn ~section "Error opening connection" >>= fun () ->
-         fail exn
-      )
-  with exn -> Lwt.fail exn
+    | Some fd -> fd in
+  try%lwt match tls_authenticator with
+    | None ->
+        Lwt_unix.connect fd sockaddr >|= fun () ->
+        (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+        (of_fd ?buffer_size ~mode:input fd,
+         of_fd ?buffer_size ~mode:output fd)
+    | Some authenticator ->
+        let config = Tls.Config.(client ~authenticator ~ciphers:Ciphers.supported ()) in
+        Lwt_unix.connect fd sockaddr >>= fun () ->
+        (try Lwt_unix.set_close_on_exec fd with Invalid_argument _ -> ());
+        Tls_lwt.(Unix.client_of_fd ~trace ~host config fd >|= of_t)
+  with exn ->
+    safe_close_fd fd >>= fun () ->
+    Lwt_log.warning ~exn ~section "Error opening connection" >>= fun () ->
+    fail exn
 
 let with_connection ?tls_authenticator ?fd ?buffer_size sockaddr f =
   open_connection ?tls_authenticator ?fd ?buffer_size sockaddr >>= fun (ic, oc) ->
-  finalize
-    (fun () -> f (ic, oc))
-    (fun () -> close ic)
+  finalize (fun () -> f (ic, oc)) (fun () -> close ic)
 
 type server = { shutdown : unit Lazy.t }
 
