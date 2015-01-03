@@ -169,38 +169,38 @@ let read_frames (ic,oc) push_to_client push_to_remote =
      | _              -> fail (Failure "internal error")) >|=
     Int64.to_int >>=
     fun payload_len ->
-    if masked then Lwt_io.read_into_exactly ic mask 0 4
-    else Lwt.return_unit >>= fun () ->
-      (* Create a buffer that will be passed to the push function *)
-      let content = Bytes.create payload_len in
-      Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
-      let () = if masked then xor (Bytes.unsafe_to_string mask) content in
-      let () = match opcode with
-        | Opcode.Ping ->
-          (* Immediately reply with a pong, and pass the message to
-             the user *)
-          push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
-          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
-        | Opcode.Close ->
-          (* Immediately echo, pass this last message to the user,
-             and close the stream *)
-          (if payload_len > 2 then
-             let status_code = EndianBytes.BigEndian.get_int16 content 0 in
-             push_to_remote (Some (Frame.of_subbytes
-                                     ~opcode:(Opcode.Close_status status_code)
-                                     content 0 2));
-             push_to_client (Some (Frame.of_bytes
-                                     ~opcode:(Opcode.Close_status status_code)
-                                     ~ extension ~final ~content ()))
-           else
-             (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
-              push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ())))
-          );
-          raise Close_frame_received
-        | _ ->
-          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
-      in
-      Lwt.return_unit
+    (if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit)
+    >>= fun () ->
+    (* Create a buffer that will be passed to the push function *)
+    let content = Bytes.create payload_len in
+    Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
+    let () = if masked then xor (Bytes.unsafe_to_string mask) content in
+    let () = match opcode with
+      | Opcode.Ping ->
+        (* Immediately reply with a pong, and pass the message to
+           the user *)
+        push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
+        push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+      | Opcode.Close ->
+        (* Immediately echo, pass this last message to the user,
+           and close the stream *)
+        (if payload_len > 2 then
+           let status_code = EndianBytes.BigEndian.get_int16 content 0 in
+           push_to_remote (Some (Frame.of_subbytes
+                                   ~opcode:(Opcode.Close_status status_code)
+                                   content 0 2));
+           push_to_client (Some (Frame.of_bytes
+                                   ~opcode:(Opcode.Close_status status_code)
+                                   ~ extension ~final ~content ()))
+         else
+           (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
+            push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ())))
+        );
+        raise Close_frame_received
+      | _ ->
+        push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+    in
+    Lwt.return_unit
   in
   let rec read_forever () =
     (try%lwt read_frame ()
