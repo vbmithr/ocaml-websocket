@@ -102,6 +102,4 @@ let sockaddr_of_dns node service =
   >|= fun ai -> ai.ai_addr
 
 let set_tcp_nodelay fd =
-  Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true;
-  if not (Lwt_unix.getsockopt fd Lwt_unix.TCP_NODELAY)
-  then failwith "Unable to set TCP_NODELAY"
+  Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
