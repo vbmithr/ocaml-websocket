@@ -76,13 +76,15 @@ val with_connection :
     in charge of communicating with the other end, and that takes a
     stream and a push function as arguments. *)
 
+type server
+
 val establish_server :
   ?certificate:X509_lwt.priv ->
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
   (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) ->
-  Lwt_io_ext.server
+  server
 (** Function in the spirit of [Lwt_io.establish_server], except that
     the provided function takes a stream and a push function instead
     of two channels.  Beware that when the Lwt thread returned by this

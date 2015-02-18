@@ -354,6 +354,8 @@ let with_connection ?tls_authenticator ?(extra_headers = []) uri f =
     ?tls_authenticator ~extra_headers uri >>= fun (stream_in, push_out) ->
   f (stream_in, push_out)
 
+type server = Lwt_io_ext.server = { shutdown : unit Lazy.t }
+
 let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
   let server_fun (ic, oc) =
     let stream_in, push_in   = Lwt_stream.create ()
