@@ -73,7 +73,7 @@ let establish_server ?certificate ?fd ?setup_clients_sockets ?buffer_size ?(back
                   return_unit
         end
     | Some certificate ->
-        let tls_config = Tls.Config.server ~certificate () in
+        let tls_config = Tls.Config.server ~certificates:(`Single certificate) () in
         begin
           pick [Lwt_unix.accept fd >|= (fun x -> `Accept x); abort_waiter] >>= function
           | `Accept(fd, _) ->

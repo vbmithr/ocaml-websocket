@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "websocket"
-version: "0.9.2"
+version: "0.9.3"
 maintainer: "vb@luminar.eu.org"
 tags: [
   "org:mirage"
@@ -16,5 +16,6 @@ depends: [
   "tls" {>= "0.2"}
   "cohttp" {>= "0.10.0"}
   "ocplib-endian" {>= "0.4"}
+  "tls" {>= "0.4"}
 ]
 ocaml-version: [>="4.02.0"]
