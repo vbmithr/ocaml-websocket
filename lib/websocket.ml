@@ -205,8 +205,9 @@ let read_frames (ic,oc) push_to_client push_to_remote =
   let rec read_forever () =
     (try%lwt read_frame ()
      with exn ->
+       (try push_to_client None with _ -> ());
        Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
-       (try push_to_client None with _ -> ()); fail exn)
+       fail exn)
     >>= fun () -> read_forever () in
   read_forever ()
 
