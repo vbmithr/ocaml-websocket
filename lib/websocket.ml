@@ -107,7 +107,10 @@ module Frame = struct
     { opcode; extension; final; content = Opt.map content Bytes.unsafe_to_string }
 
   let of_subbytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) content pos len =
-    { opcode; extension; final; content=Some Bytes.(sub content pos len |> unsafe_to_string ) }
+    let content =
+      if len > 0 then Some Bytes.(sub content pos len |> unsafe_to_string)
+      else None in
+    { opcode; extension; final; content }
 end
 
 let xor mask msg =
@@ -184,14 +187,15 @@ let read_frames (ic,oc) push_to_client push_to_remote =
       | Opcode.Close ->
         (* Immediately echo, pass this last message to the user,
            and close the stream *)
-        (if payload_len > 2 then
+        (if payload_len >= 2 then
            let status_code = EndianBytes.BigEndian.get_int16 content 0 in
            push_to_remote (Some (Frame.of_subbytes
                                    ~opcode:(Opcode.Close_status status_code)
                                    content 0 2));
-           push_to_client (Some (Frame.of_bytes
+           push_to_client (Some (Frame.of_subbytes
                                    ~opcode:(Opcode.Close_status status_code)
-                                   ~ extension ~final ~content ()))
+                                   ~extension ~final
+                                   content 2 (payload_len - 2)))
          else
            (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
             push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ())))
