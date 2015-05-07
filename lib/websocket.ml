@@ -198,7 +198,7 @@ let read_frames (ic,oc) push_to_client push_to_remote =
                                    content 2 (payload_len - 2)))
          else
            (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
-            push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ())))
+            push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ())))
         );
         raise Close_frame_received
       | _ ->
