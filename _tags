@@ -4,7 +4,8 @@ true: bin_annot, debug, safe_string
 <tests>: include
 
 <**/*.*>: package(lwt), \
-	  package(lwt.ppx), \
-	  package(tls.lwt), \
-	  package(uri), \
-	  package(cohttp.lwt)
+          package(lwt.ppx), \
+          package(tls.lwt), \
+          package(uri), \
+          package(cohttp.lwt), \
+          package(containers)

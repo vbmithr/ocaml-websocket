@@ -1,6 +1,6 @@
 version = "0.9"
 description = "Websocket library"
-requires = "lwt tls.lwt cohttp.lwt ocplib-endian"
+requires = "lwt tls.lwt cohttp.lwt ocplib-endian containers"
 archive(byte) = "websocket.cma"
 archive(byte, plugin) = "websocket.cma"
 archive(native) = "websocket.cmxa"

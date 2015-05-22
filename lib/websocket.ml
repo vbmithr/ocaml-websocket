@@ -35,24 +35,6 @@ let b64_encoded_sha1sum s =
   Base64.encode |>
   Cstruct.to_string
 
-module Opt = struct
-  let bind x f = match x with None -> None | Some v -> f v
-  let (>>=) = bind
-
-  let try_bind x f e = match bind x f with None -> e | r -> r
-
-  let map x f = match x with None -> None | Some v -> Some (f v)
-  let (>|=) = map
-
-  let run_exc = function
-    | None -> raise (Invalid_argument "run_exc")
-    | Some v -> v
-
-  let run d = function
-    | None -> d
-    | Some v -> v
-end
-
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 module Frame = struct
@@ -66,7 +48,7 @@ module Frame = struct
       | Ping
       | Pong
       | Ctrl of int
-      | Nonctrl of int [@@deriving Show]
+      | Nonctrl of int [@@deriving show]
 
     let of_enum i = match i land 0xf with
       | 0                     -> Continuation
@@ -104,7 +86,7 @@ module Frame = struct
     { opcode; extension; final; content = content }
 
   let of_bytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) ?content () =
-    { opcode; extension; final; content = Opt.map content Bytes.unsafe_to_string }
+    { opcode; extension; final; content = CCOpt.map Bytes.unsafe_to_string content}
 
   let of_subbytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) content pos len =
     let content =
@@ -220,8 +202,8 @@ let send_frames ~masked stream (ic,oc) =
   let open Frame in
   let send_frame fr =
     let mask = random_string 4 in
-    let content = Opt.(run (Bytes.create 0) @@
-                       map (Frame.content fr) Bytes.unsafe_of_string) in
+    let content = CCOpt.(get (Bytes.create 0) @@
+                         map Bytes.unsafe_of_string (Frame.content fr)) in
     let len = Bytes.length content in
     let opcode = Frame.(opcode fr |> Opcode.to_enum) in
     let isclose = Frame.opcode fr = Opcode.Close in
@@ -265,7 +247,7 @@ let is_upgrade =
 let open_connection ?tls_authenticator ?(extra_headers = []) uri =
   (* Initialisation *)
   Lwt_unix.gethostname () >>= fun myhostname ->
-  let host = Opt.run_exc (Uri.host uri) in
+  let host = CCOpt.get_exn (Uri.host uri) in
   let port = Uri.port uri in
   let scheme = Uri.scheme uri in
   X509_lwt.authenticator `No_authentication_I'M_STUPID >>= fun default_authenticator ->
@@ -331,8 +313,8 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
           (
             assert (Response.version response = `HTTP_1_1);
             assert (status = `Switching_protocols);
-            assert (Opt.(Header.get headers "upgrade" >|= String.lowercase) =
-                    Some "websocket");
+            assert (CCOpt.map String.lowercase @@ Header.get headers "upgrade" =
+                                                  Some "websocket");
             assert (is_upgrade @@ C.Header.get headers "connection");
             assert (Header.get headers "sec-websocket-accept" =
                     Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum));
@@ -377,12 +359,12 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
     and version = C.Request.version request
     and uri     = C.Request.uri request
     and headers = C.Request.headers request in
-    let key = Opt.run_exc @@ C.Header.get headers "sec-websocket-key" in
+    let key = CCOpt.get_exn @@ C.Header.get headers "sec-websocket-key" in
     let () =
       assert (version = `HTTP_1_1);
       assert (meth = `GET);
-      assert (Opt.(C.Header.get headers "upgrade" >|=
-                   String.lowercase) = Some "websocket");
+      assert (CCOpt.map String.lowercase @@ C.Header.get headers "upgrade"
+                                            = Some "websocket");
       assert (is_upgrade (C.Header.get headers "connection"))
     in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
