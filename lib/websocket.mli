@@ -37,7 +37,7 @@ module Frame : sig
       | Ping
       | Pong
       | Ctrl of int
-      | Nonctrl of int
+      | Nonctrl of int [@@deriving show,enum]
   end
   (** Type representing websocket opcodes *)
 

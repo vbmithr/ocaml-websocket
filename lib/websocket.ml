@@ -50,15 +50,19 @@ module Frame = struct
       | Ctrl of int
       | Nonctrl of int [@@deriving show]
 
-    let of_enum i = match i land 0xf with
-      | 0                     -> Continuation
-      | 1                     -> Text
-      | 2                     -> Binary
-      | 8                     -> Close
-      | 9                     -> Ping
-      | 10                    -> Pong
-      | i when i > 2 && i < 8 -> Nonctrl i
-      | i                     -> Ctrl i
+    let min = 0x0
+    let max = 0xf
+
+    let of_enum = function
+      | i when (i < 0 || i > 0xf) -> None
+      | 0                         -> Some Continuation
+      | 1                         -> Some Text
+      | 2                         -> Some Binary
+      | 8                         -> Some Close
+      | 9                         -> Some Ping
+      | 10                        -> Some Pong
+      | i when i > 2 && i < 8     -> Some (Nonctrl i)
+      | i                         -> Some (Ctrl i)
 
     let to_enum = function
       | Continuation -> 0
@@ -146,7 +150,7 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     let opcode = int_value 0 4 hdr_part1 in
     let masked = is_bit_set 7 hdr_part2 in
     let length = int_value 0 7 hdr_part2 in
-    let opcode = Frame.Opcode.of_enum opcode in
+    let opcode = Frame.Opcode.of_enum opcode |> CCOpt.get_exn in
     (match length with
      | i when i < 126 -> return @@ Int64.of_int i
      | 126            -> read_uint16 ic >|= Int64.of_int

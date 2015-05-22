@@ -8,4 +8,5 @@ true: bin_annot, debug, safe_string
           package(tls.lwt), \
           package(uri), \
           package(cohttp.lwt), \
+          package(ppx_deriving.std), \
           package(containers)
