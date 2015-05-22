@@ -15,7 +15,7 @@
  *
  *)
 
-open Lwt
+open Lwt.Infix
 
 module C = Cohttp
 module CU = Cohttp_lwt_unix
@@ -152,10 +152,10 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     let length = int_value 0 7 hdr_part2 in
     let opcode = Frame.Opcode.of_enum opcode |> CCOpt.get_exn in
     (match length with
-     | i when i < 126 -> return @@ Int64.of_int i
+     | i when i < 126 -> Lwt.return @@ Int64.of_int i
      | 126            -> read_uint16 ic >|= Int64.of_int
      | 127            -> read_int64 ic
-     | _              -> fail (Failure "internal error")) >|=
+     | _              -> Lwt.fail (Failure "internal error")) >|=
     Int64.to_int >>=
     fun payload_len ->
     (if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit)
@@ -196,7 +196,7 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     (try%lwt read_frame ()
      with exn ->
        Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
-       (try push_to_client None with _ -> ()); fail exn)
+       (try push_to_client None with _ -> ()); Lwt.fail exn)
     >>= fun () -> read_forever () in
   read_forever ()
 
@@ -222,14 +222,14 @@ let send_frames ~masked stream (ic,oc) =
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
     write_int16 oc hdr >>= fun () ->
     (match len with
-     | n when n < 126        -> return_unit
+     | n when n < 126        -> Lwt.return_unit
      | n when n < (1 lsl 16) -> write_int16 oc n
      | n                     -> Int64.of_int n |> write_int64 oc) >>= fun () ->
     (if masked && len > 0 then begin
         xor mask content;
         Lwt_io.write_from_exactly oc (Bytes.unsafe_of_string mask) 0 4
       end
-     else return_unit) >>= fun () ->
+     else Lwt.return_unit) >>= fun () ->
     (if isclose then write_int16 oc 1000 else Lwt.return_unit) >>= fun () ->
     Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
     Lwt_io.flush oc in
@@ -302,17 +302,17 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
       try%lwt
         Lwt_unix.handle_unix_error
         (fun () -> CU.Request.write
-            (fun writer -> return_unit) req oc) () >>= fun () ->
+            (fun writer -> Lwt.return_unit) req oc) () >>= fun () ->
         Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
-            | `Ok r -> return r
-            | `Eof -> fail End_of_file
-            | `Invalid s -> fail @@ Failure s)
+            | `Ok r -> Lwt.return r
+            | `Eof -> Lwt.fail End_of_file
+            | `Invalid s -> Lwt.fail @@ Failure s)
         >>= fun response ->
         let status = Response.status response in
         let headers = CU.Response.headers response in
         if Code.(is_error @@ code_of_status status)
         then
-          fail @@ HTTP_Error Code.(string_of_status status)
+          Lwt.fail @@ HTTP_Error Code.(string_of_status status)
         else
           (
             assert (Response.version response = `HTTP_1_1);
@@ -324,15 +324,15 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
                     Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum));
             Lwt_log.notice_f "Connected to %s" (Uri.to_string uri)
           )
-      with exn -> Lwt_io_ext.(safe_close ic) >>= fun () -> fail exn
+      with exn -> Lwt_io_ext.(safe_close ic) >>= fun () -> Lwt.fail exn
 
     in
     drain_handshake () >>= fun () ->
-    return (ic, oc)
+    Lwt.return (ic, oc)
   in
   connect () >>= fun (ic, oc) ->
-  async (fun () ->
-      (try%lwt join
+  Lwt.async (fun () ->
+      (try%lwt Lwt.join
         [read_frames (ic,oc) push_in push_out;
          send_frames ~masked:true stream_out (ic,oc)]
        with exn -> raise exn
@@ -355,10 +355,10 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
         Lwt_log.info ~section "Remote endpoint closed connection" >>= fun () ->
-        fail End_of_file
+        Lwt.fail End_of_file
       | `Invalid reason ->
         Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason >>= fun () ->
-        fail @@ Failure reason) >>= fun request ->
+        Lwt.fail @@ Failure reason) >>= fun request ->
     let meth    = C.Request.meth request
     and version = C.Request.version request
     and uri     = C.Request.uri request
@@ -380,7 +380,7 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
         ~status:`Switching_protocols
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
-    CU.Response.write (fun writer -> return_unit) response oc >>= fun () ->
+    CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
     Lwt.pick [read_frames (ic,oc) push_in push_out;
               send_frames ~masked:false stream_out (ic,oc);
               f uri (stream_in, push_out)]
@@ -395,6 +395,6 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
        (try%lwt server_fun (ic,oc)
         with
         | End_of_file -> Lwt_log.info ~section "Client closed connection"
-        | exn -> fail exn
+        | exn -> Lwt.fail exn
        ) [%finally Lwt_io_ext.safe_close ic]
     )
