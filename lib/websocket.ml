@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2014 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2015 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,8 +43,7 @@ module Frame = struct
       | Continuation
       | Text
       | Binary
-      | Close (* A close frame without a status code *)
-      | Close_status of int (* A close frame with a status code *)
+      | Close
       | Ping
       | Pong
       | Ctrl of int
@@ -61,42 +60,35 @@ module Frame = struct
       | 8                         -> Some Close
       | 9                         -> Some Ping
       | 10                        -> Some Pong
-      | i when i > 2 && i < 8     -> Some (Nonctrl i)
+      | i when i < 8              -> Some (Nonctrl i)
       | i                         -> Some (Ctrl i)
 
     let to_enum = function
-      | Continuation -> 0
-      | Text         -> 1
-      | Binary       -> 2
-      | Close        -> 8
-      | Close_status _ -> 8
-      | Ping         -> 9
-      | Pong         -> 10
-      | Ctrl i       -> i
-      | Nonctrl i    -> i
+      | Continuation   -> 0
+      | Text           -> 1
+      | Binary         -> 2
+      | Close          -> 8
+      | Ping           -> 9
+      | Pong           -> 10
+      | Ctrl i         -> i
+      | Nonctrl i      -> i
+
+    let is_ctrl opcode = to_enum opcode > 7
   end
 
-  type t = { opcode    : Opcode.t;
-             extension : int;
-             final     : bool;
-             content   : string option }
+  type t = { opcode    : Opcode.t [@default Opcode.Text];
+             extension : int [@default 0];
+             final     : bool [@default true];
+             content   : string [@default ""];
+           } [@@deriving show,create]
 
-  let opcode f    = f.opcode
-  let extension f = f.extension
-  let final f     = f.final
-  let content f   = f.content
+  let of_bytes ?opcode ?extension ?final ?content () =
+    let content = CCOpt.map Bytes.unsafe_to_string content in
+    create ?opcode ?extension ?final ?content ()
 
-  let of_string ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) ?content () =
-    { opcode; extension; final; content = content }
-
-  let of_bytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) ?content () =
-    { opcode; extension; final; content = CCOpt.map Bytes.unsafe_to_string content}
-
-  let of_subbytes ?(opcode=Opcode.Text) ?(extension=0) ?(final=true) content pos len =
-    let content =
-      if len > 0 then Some Bytes.(sub content pos len |> unsafe_to_string)
-      else None in
-    { opcode; extension; final; content }
+  let of_subbytes ?opcode ?extension ?final content pos len =
+    let content = Bytes.(sub content pos len |> unsafe_to_string) in
+    create ?opcode ?extension ?final ~content ()
 end
 
 let xor mask msg =
@@ -130,17 +122,18 @@ let is_bit_set idx v =
 let set_bit v idx b =
   if b then v lor (1 lsl idx) else v land (lnot (1 lsl idx))
 
-let int_value shift len v =
-  (v lsr shift) land ((1 lsl len) - 1)
+let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
-exception Close_frame_received
-
-(* Should an exception arise in the body of this function, ic and oc
-   will be closed *)
 let read_frames (ic,oc) push_to_client push_to_remote =
   let open Frame in
   let hdr = Bytes.create 2 in
   let mask = Bytes.create 4 in
+  let close_with_code code =
+    let content = Bytes.create 2 in
+    EndianBytes.BigEndian.set_int16 content 0 code;
+    push_to_remote @@ Some (Frame.of_bytes ~opcode:Opcode.Close ~content ());
+    push_to_client None
+  in
   let rec read_frame () =
     Lwt_io.read_into_exactly ic hdr 0 2 >>= fun () ->
     let hdr_part1 = EndianBytes.BigEndian.get_int8 hdr 0 in
@@ -155,38 +148,42 @@ let read_frames (ic,oc) push_to_client push_to_remote =
      | i when i < 126 -> Lwt.return @@ Int64.of_int i
      | 126            -> read_uint16 ic >|= Int64.of_int
      | 127            -> read_int64 ic
-     | _              -> Lwt.fail (Failure "internal error")) >|=
-    Int64.to_int >>=
-    fun payload_len ->
-    (if masked then Lwt_io.read_into_exactly ic mask 0 4 else Lwt.return_unit)
-    >>= fun () ->
+     | _              -> assert false) >|= Int64.to_int >>= fun payload_len ->
+    (if extension <> 0
+     then (close_with_code 1002; Lwt.fail Exit)
+     else Lwt.return_unit) >>= fun () ->
+    (if Opcode.is_ctrl opcode && payload_len > 125
+     then (close_with_code 1002; Lwt.fail Exit)
+     else Lwt.return_unit) >>= fun () ->
+    (if masked
+     then Lwt_io.read_into_exactly ic mask 0 4
+     else Lwt.return_unit) >>= fun () ->
     (* Create a buffer that will be passed to the push function *)
     let content = Bytes.create payload_len in
     Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
     let () = if masked then xor (Bytes.unsafe_to_string mask) content in
     let () = match opcode with
+
       | Opcode.Ping ->
         (* Immediately reply with a pong, and pass the message to
            the user *)
         push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
         push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+
       | Opcode.Close ->
         (* Immediately echo, pass this last message to the user,
            and close the stream *)
-        (if payload_len >= 2 then
-           let status_code = EndianBytes.BigEndian.get_int16 content 0 in
-           push_to_remote (Some (Frame.of_subbytes
-                                   ~opcode:(Opcode.Close_status status_code)
-                                   content 0 2));
-           push_to_client (Some (Frame.of_subbytes
-                                   ~opcode:(Opcode.Close_status status_code)
-                                   ~extension ~final
-                                   content 2 (payload_len - 2)))
-         else
-           (push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Close ()));
-            push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ())))
+        (if payload_len >= 2 then begin
+           push_to_remote (Some (Frame.of_subbytes ~opcode content 0 2));
+           push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+          end
+         else begin
+           push_to_remote (Some (Frame.of_bytes ~opcode ()));
+           push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ()))
+         end
         );
-        raise Close_frame_received
+        push_to_client None
+
       | _ ->
         push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
     in
@@ -200,23 +197,18 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     >>= fun () -> read_forever () in
   read_forever ()
 
-(* Should an exception arise in the body of this function, ic and oc
-   will be closed *)
 let send_frames ~masked stream (ic,oc) =
   let open Frame in
   let send_frame fr =
     let mask = random_string 4 in
-    let content = CCOpt.(get (Bytes.create 0) @@
-                         map Bytes.unsafe_of_string (Frame.content fr)) in
+    let content = Bytes.unsafe_of_string fr.content in
     let len = Bytes.length content in
-    let opcode = Frame.(opcode fr |> Opcode.to_enum) in
-    let isclose = Frame.opcode fr = Opcode.Close in
-    let payload_len = if isclose then len + 2 else len in
-    let payload_len = match payload_len with
-      | n when n < 126      -> payload_len
+    let opcode = Opcode.to_enum fr.opcode in
+    let payload_len = match len with
+      | n when n < 126      -> len
       | n when n < 1 lsl 16 -> 126
       | _                   -> 127 in
-    let hdr = set_bit 0 15 (Frame.final fr) in (* We do not support extensions for now *)
+    let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 masked in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
@@ -230,12 +222,13 @@ let send_frames ~masked stream (ic,oc) =
         Lwt_io.write_from_exactly oc (Bytes.unsafe_of_string mask) 0 4
       end
      else Lwt.return_unit) >>= fun () ->
-    (if isclose then write_int16 oc 1000 else Lwt.return_unit) >>= fun () ->
     Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
     Lwt_io.flush oc in
   let rec send_forever () =
-    Lwt_stream.next stream >>= send_frame >>= fun () ->
-    send_forever ()
+    try%lwt
+      Lwt_stream.next stream >>= send_frame >>= fun () ->
+      send_forever ()
+    with Lwt_stream.Empty -> Lwt.return_unit
   in send_forever ()
 
 let setup_socket = Lwt_io_ext.set_tcp_nodelay
@@ -335,7 +328,7 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
       (try%lwt Lwt.join
         [read_frames (ic,oc) push_in push_out;
          send_frames ~masked:true stream_out (ic,oc)]
-       with exn -> raise exn
+       with exn -> Lwt.fail exn
       ) [%finally Lwt_io_ext.safe_close ic]);
   Lwt.return (stream_in, push_out)
 
@@ -392,7 +385,8 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
     ~setup_clients_sockets:setup_socket
     ?buffer_size ?backlog sockaddr
     (fun (ic,oc) ->
-       (try%lwt server_fun (ic,oc)
+       (try%lwt
+         server_fun (ic,oc)
         with
         | End_of_file -> Lwt_log.info ~section "Client closed connection"
         | exn -> Lwt.fail exn

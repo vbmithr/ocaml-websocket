@@ -1,28 +1,46 @@
-open Lwt
+open Lwt.Infix
 open Websocket
+
+let section = Lwt_log.Section.make "wscat"
 
 let client uri =
   let cat_fun (stream, push) =
     let rec read_fun () =
-      Lwt_io.read_line Lwt_io.stdin >>= fun content ->
-      Lwt.wrap (fun () -> push (Some (Frame.of_string ~content ())))
-      >>= read_fun in
+      Lwt_io.(read_line_opt stdin) >>= function
+      | None -> push None; Lwt.return_unit
+      | Some content -> push (Some (Frame.create ~content ())); read_fun ()
+    in
     let rec write_fun () =
       Lwt_stream.next stream >>= fun fr ->
-      (match Frame.content fr with
-       | None -> return_unit
-       | Some content -> Lwt_io.printf "%s\n> " content)
+      (match fr.Frame.content with
+       | "" -> Lwt.return_unit
+       | content -> Lwt_io.printf "%s\n> " content)
       >>= write_fun in
     Lwt_io.printf "> " >>= fun () ->
-    read_fun () <&> write_fun ()
+    try%lwt (* Because "push" can raise an exception. *)
+      read_fun () <&> write_fun ()
+    with
+    | exn -> Lwt.fail exn
   in
   with_connection uri cat_fun
 
 let server ?certificate sockaddr =
   let rec echo_fun uri (stream, push) =
-    Lwt_stream.next stream >>= fun frame ->
-    Lwt.wrap (fun () -> push (Some frame)) >>= fun () ->
-    echo_fun uri (stream, push) in
+    try%lwt
+      Lwt_stream.next stream >>= fun frame ->
+      Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >>= fun () ->
+      let open Frame in
+      (match frame.opcode with
+      | Opcode.Pong -> ()
+      | _ -> push (Some frame));
+      echo_fun uri (stream, push)
+    with
+    | Lwt_stream.Empty
+    | Lwt_stream.Closed -> Lwt.return_unit
+    | exn ->
+      Lwt_log.debug ~section ~exn "server" >>= fun () ->
+      Lwt.fail exn
+  in
   establish_server ?certificate sockaddr echo_fun
 
 let rec wait_forever () =

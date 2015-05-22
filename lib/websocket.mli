@@ -33,30 +33,23 @@ module Frame : sig
       | Text
       | Binary
       | Close
-      | Close_status of int
       | Ping
       | Pong
       | Ctrl of int
       | Nonctrl of int [@@deriving show,enum]
+
+    val is_ctrl : t -> bool
+    (** [is_ctrl opcode] is [true] if [opcode] is a control
+        frame. *)
   end
   (** Type representing websocket opcodes *)
 
-  type t
+  type t = { opcode    : Opcode.t [@default Opcode.Text];
+             extension : int [@default 0];
+             final     : bool [@default true];
+             content   : string [@default ""];
+           } [@@deriving show,create]
   (** The type representing websocket frames *)
-
-  (** Accessors for type t *)
-
-  val opcode    : t -> Opcode.t
-  val extension : t -> int
-  val final     : t -> bool
-  val content   : t -> string option
-
-  val of_string :
-    ?opcode:Opcode.t ->
-    ?extension:int ->
-    ?final:bool ->
-    ?content:string -> unit -> t
-  (** Frame creation *)
 end
 
 val open_connection :
