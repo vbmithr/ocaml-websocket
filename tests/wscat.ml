@@ -26,20 +26,21 @@ let client uri =
 
 let server ?certificate sockaddr =
   let rec echo_fun uri (stream, push) =
-    try%lwt
+    (try%lwt
       Lwt_stream.next stream >>= fun frame ->
-      Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >>= fun () ->
       let open Frame in
       (match frame.opcode with
-      | Opcode.Pong -> ()
-      | _ -> push (Some frame));
-      echo_fun uri (stream, push)
+       | Opcode.Text
+       | Opcode.Binary -> push (Some frame)
+       | _ -> ());
+      Lwt.return_unit
     with
-    | Lwt_stream.Empty
-    | Lwt_stream.Closed -> Lwt.return_unit
     | exn ->
       Lwt_log.debug ~section ~exn "server" >>= fun () ->
-      Lwt.fail exn
+      Lwt.fail exn)
+
+    >>= fun () ->
+    echo_fun uri (stream, push)
   in
   establish_server ?certificate sockaddr echo_fun
 

@@ -124,7 +124,7 @@ let set_bit v idx b =
 
 let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
-let read_frames (ic,oc) push_to_client push_to_remote =
+let read_frames ic push_to_client push_to_remote =
   let open Frame in
   let hdr = Bytes.create 2 in
   let mask = Bytes.create 4 in
@@ -162,42 +162,47 @@ let read_frames (ic,oc) push_to_client push_to_remote =
     let content = Bytes.create payload_len in
     Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
     let () = if masked then xor (Bytes.unsafe_to_string mask) content in
-    let () = match opcode with
+    let frame = Frame.of_bytes ~opcode ~extension ~final ~content () in
+    Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >>= fun () ->
+    match opcode with
 
-      | Opcode.Ping ->
-        (* Immediately reply with a pong, and pass the message to
-           the user *)
-        push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
-        push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+    | Opcode.Ping ->
+      (* Immediately reply with a pong, and pass the message to
+         the user *)
+      push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
+      push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()));
+      Lwt.return_unit
 
-      | Opcode.Close ->
-        (* Immediately echo, pass this last message to the user,
-           and close the stream *)
-        (if payload_len >= 2 then begin
-           push_to_remote (Some (Frame.of_subbytes ~opcode content 0 2));
-           push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
-          end
-         else begin
-           push_to_remote (Some (Frame.of_bytes ~opcode ()));
-           push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ()))
-         end
-        );
-        push_to_client None
+    | Opcode.Close ->
+      (* Immediately echo, pass this last message to the user,
+         and close the stream *)
+      (if payload_len >= 2 then begin
+          push_to_remote (Some (Frame.of_subbytes ~opcode content 0 2));
+          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
+        end
+       else begin
+         push_to_remote (Some (Frame.of_bytes ~opcode ()));
+         push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ()))
+       end
+      );
+      push_to_client None;
+      Lwt.return_unit
 
-      | _ ->
-        push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
-    in
-    Lwt.return_unit
+    | _ ->
+      push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()));
+      Lwt.return_unit
+
   in
   let rec read_forever () =
-    (try%lwt read_frame ()
+    (try%lwt
+       read_frame ()
      with exn ->
        Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
        (try push_to_client None with _ -> ()); Lwt.fail exn)
     >>= fun () -> read_forever () in
   read_forever ()
 
-let send_frames ~masked stream (ic,oc) =
+let send_frames ~masked stream oc =
   let open Frame in
   let send_frame fr =
     let mask = random_string 4 in
@@ -225,10 +230,16 @@ let send_frames ~masked stream (ic,oc) =
     Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
     Lwt_io.flush oc in
   let rec send_forever () =
-    try%lwt
-      Lwt_stream.next stream >>= send_frame >>= fun () ->
-      send_forever ()
-    with Lwt_stream.Empty -> Lwt.return_unit
+    Lwt_stream.next stream >>= fun frame ->
+    send_frame frame >>= fun () ->
+    Lwt_log.debug_f ~section "-> %s" (Frame.show frame) >>= fun () ->
+    (if frame.opcode = Opcode.Close
+    then begin
+      Lwt_log.debug ~section "send_frames wants to close the connection" >>= fun () ->
+      Lwt.fail Exit
+    end
+    else Lwt.return_unit) >>= fun () ->
+    send_forever ()
   in send_forever ()
 
 let setup_socket = Lwt_io_ext.set_tcp_nodelay
@@ -326,8 +337,8 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
   connect () >>= fun (ic, oc) ->
   Lwt.async (fun () ->
       (try%lwt Lwt.join
-        [read_frames (ic,oc) push_in push_out;
-         send_frames ~masked:true stream_out (ic,oc)]
+        [read_frames ic push_in push_out;
+         send_frames ~masked:true stream_out oc]
        with exn -> Lwt.fail exn
       ) [%finally Lwt_io_ext.safe_close ic]);
   Lwt.return (stream_in, push_out)
@@ -374,8 +385,8 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    Lwt.pick [read_frames (ic,oc) push_in push_out;
-              send_frames ~masked:false stream_out (ic,oc);
+    Lwt.pick [read_frames ic push_in push_out;
+              send_frames ~masked:false stream_out oc;
               f uri (stream_in, push_out)]
   in
   Lwt.async_exception_hook :=
