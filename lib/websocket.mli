@@ -56,8 +56,7 @@ val with_connection :
   ?tls_authenticator:X509_lwt.authenticator ->
   ?extra_headers:((string * string) list) ->
   Uri.t ->
-  (Frame.t -> Frame.t option) ->
-  (Frame.t -> unit Lwt.t) Lwt.t
+  ((unit -> Frame.t Lwt.t) * (Frame.t -> unit Lwt.t)) Lwt.t
 
 type server
 
@@ -66,5 +65,7 @@ val establish_server :
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
-  (int -> Uri.t -> (Frame.t -> unit Lwt.t) -> Frame.t -> Frame.t option) ->
+  (int -> Uri.t ->
+   (unit -> Frame.t Lwt.t) ->
+   (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   server

@@ -156,7 +156,7 @@ let send_frame ~masked oc fr =
   Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
   Lwt_io.flush oc
 
-let make_read_frame ~masked react (ic,oc) =
+let make_read_frame ~masked (ic,oc) =
   let open Frame in
   let hdr = Bytes.create 2 in
   let mask = Bytes.create 4 in
@@ -165,11 +165,6 @@ let make_read_frame ~masked react (ic,oc) =
     EndianBytes.BigEndian.set_int16 content 0 code;
     send_frame ~masked oc @@ Frame.close code >>= fun () ->
     Lwt.fail Exit in
-  let react frame =
-    match react frame with
-    | Some resp -> Lwt.async (fun () -> send_frame ~masked oc resp)
-    | None -> ()
-  in
   fun () ->
     Lwt_io.read_into_exactly ic hdr 0 2 >>= fun () ->
     let hdr_part1 = EndianBytes.BigEndian.get_int8 hdr 0 in
@@ -196,38 +191,8 @@ let make_read_frame ~masked react (ic,oc) =
     Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
     let () = if frame_masked then xor (Bytes.unsafe_to_string mask) content in
     let frame = Frame.of_bytes ~opcode ~extension ~final content in
-    Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >>= fun () ->
-    match opcode with
-
-    | Opcode.Ping ->
-      (* Immediately reply with a pong, and pass the message to
-         the user *)
-      react @@ Frame.of_bytes ~opcode ~extension ~final content;
-      send_frame ~masked oc @@
-      Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final content
-
-    | Opcode.Close ->
-      (* Immediately echo and pass this last message to the user *)
-      if payload_len >= 2 then begin
-        react @@ Frame.of_bytes ~opcode ~extension ~final content;
-        send_frame ~masked oc @@ Frame.of_subbytes ~opcode content 0 2 >>= fun () ->
-        Lwt.fail Exit
-      end
-      else begin
-        react @@ Frame.create ~opcode ~extension ~final ();
-        send_frame ~masked oc @@ Frame.close 1000 >>= fun () ->
-        Lwt.fail Exit
-      end
-
-    | Opcode.Pong
-    | Opcode.Text
-    | Opcode.Binary ->
-      react @@ Frame.of_bytes ~opcode ~extension ~final content;
-      Lwt.return_unit
-
-    | _ ->
-      send_frame ~masked oc @@ Frame.create ~opcode:Opcode.Close () >>= fun () ->
-      Lwt.fail Exit
+    Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >|= fun () ->
+    frame
 
 exception HTTP_Error of string
 
@@ -237,7 +202,7 @@ let is_upgrade =
   (function None -> false
           | Some(key) -> execp re key)
 
-let with_connection ?tls_authenticator ?(extra_headers = []) uri react =
+let with_connection ?tls_authenticator ?(extra_headers = []) uri =
   (* Initialisation *)
   Lwt_unix.gethostname () >>= fun myhostname ->
   let host = CCOpt.get_exn (Uri.host uri) in
@@ -317,23 +282,14 @@ let with_connection ?tls_authenticator ?(extra_headers = []) uri react =
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~masked:true react (ic, oc) in
-  let rec read_frames_forever () =
-    (try%lwt
-      read_frame ()
-     with exn ->
-       Lwt_io_ext.(safe_close ic) >>= fun () ->
-       Lwt.fail exn)
-    >>= read_frames_forever
-  in
-  Lwt.async read_frames_forever;
-  send_frame ~masked:true oc
+  let read_frame = make_read_frame ~masked:true (ic, oc) in
+  read_frame, send_frame ~masked:true oc
 
 type server = Lwt_io_ext.server = { shutdown : unit Lazy.t }
 
 let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
-  let id = ref 0 in
-  let server_fun (ic, oc) =
+  let id = ref @@ -1 in
+  let server_fun id (ic, oc) =
     (CU.Request.read ic >>= function
       | `Ok r -> Lwt.return r
       | `Eof ->
@@ -367,14 +323,9 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    let read_frame = make_read_frame
-        ~masked:false (react !id uri (send_frame ~masked:false oc)) (ic,oc) in
-    incr id;
-    let rec read_frames_forever () =
-      read_frame ()
-      >>= read_frames_forever
-    in
-    read_frames_forever ()
+    let send_frame = send_frame ~masked:false oc in
+    let read_frame = make_read_frame ~masked:false (ic, oc) in
+    react id uri read_frame send_frame
   in
   Lwt.async_exception_hook :=
     (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
@@ -384,12 +335,13 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
     ?buffer_size ?backlog sockaddr
     (fun (ic,oc) ->
        (try%lwt
-         server_fun (ic,oc)
+          incr id;
+          server_fun !id (ic,oc)
         with
         | End_of_file ->
           Lwt_log.info ~section "Client closed connection"
         | Exit ->
-          Lwt_log.info ~section "Server closed connection normally"
+          Lwt_log.info ~section "Server closed connection"
         | exn -> Lwt.fail exn
        ) [%finally Lwt_io_ext.safe_close ic]
     )
