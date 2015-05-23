@@ -4,48 +4,32 @@ open Websocket
 let section = Lwt_log.Section.make "wscat"
 
 let client uri =
-  let cat_fun (stream, push) =
-    let rec read_fun () =
-      Lwt_io.(read_line_opt stdin) >>= function
-      | None -> push None; Lwt.return_unit
-      | Some content -> push (Some (Frame.create ~content ())); read_fun ()
-    in
-    let rec write_fun () =
-      Lwt_stream.next stream >>= fun fr ->
-      (match fr.Frame.content with
-       | "" -> Lwt.return_unit
-       | content -> Lwt_io.printf "%s\n> " content)
-      >>= write_fun in
-    Lwt_io.printf "> " >>= fun () ->
-    try%lwt (* Because "push" can raise an exception. *)
-      read_fun () <&> write_fun ()
-    with
-    | exn -> Lwt.fail exn
+  let react fr =
+    begin match fr.Frame.content with
+      | "" -> ()
+      | content -> Printf.printf "> %s\n> %!" content
+    end;
+    None
   in
-  with_connection uri cat_fun
+  with_connection uri react >>= fun send ->
+  let rec pushf () =
+    Lwt_io.(read_line_opt stdin) >>= function
+    | None ->
+      Lwt_log.debug ~section "Got EOF. Sending a close frame." >>= fun () ->
+      send @@ Frame.close 1000 >>= pushf
+    | Some content ->
+      send @@ Frame.create ~content () >>= pushf
+  in pushf ()
 
 let server ?certificate sockaddr =
-  let rec echo_fun uri (stream, push) =
-    (try%lwt
-      Lwt_stream.next stream >>= fun frame ->
-      let open Frame in
-      (match frame.opcode with
-       | Opcode.Text
-       | Opcode.Binary -> push (Some frame)
-       | _ -> ());
-      Lwt.return_unit
-    with
-    | exn ->
-      Lwt_log.debug ~section ~exn "server" >>= fun () ->
-      Lwt.fail exn)
-
-    >>= fun () ->
-    echo_fun uri (stream, push)
+  let echo_fun id uri send frame =
+    Frame.(match frame.opcode with
+        | Opcode.Text
+        | Opcode.Binary -> Some frame
+        | _ -> None
+      )
   in
   establish_server ?certificate sockaddr echo_fun
-
-let rec wait_forever () =
-  Lwt_unix.sleep 1000.0 >>= wait_forever
 
 let _ =
   let server_port = ref "" in
@@ -65,18 +49,20 @@ let _ =
   Arg.parse speclist anon_fun usage_msg;
 
   let main () =
-    Tls_lwt.rng_init () >>= fun () ->
+    Nocrypto_entropy_lwt.initialize () >>= fun () ->
     match !server_port, !endpoint_address with
     | p, "" when p <> "" ->
       begin
         Lwt_io_ext.sockaddr_of_dns "localhost" !server_port >>= fun sa ->
-        match !cert_dir with
-        | None -> ignore (server sa); wait_forever ()
-        | Some dir ->
-          let cert = dir ^ "/server.crt" in
-          let priv_key = dir ^ "/server.key" in
-          X509_lwt.private_of_pems ~cert ~priv_key >>= fun certificate ->
-          ignore (server ~certificate sa); wait_forever ()
+        let%lwt certificate = match !cert_dir with
+          | None -> Lwt.return None
+          | Some dir ->
+            let cert = dir ^ "/server.crt" in
+            let priv_key = dir ^ "/server.key" in
+            X509_lwt.private_of_pems ~cert ~priv_key >|= fun c -> Some c
+        in
+        ignore (server ?certificate sa);
+        fst @@ Lwt.wait ()
       end
     | _, endpoint when endpoint <> "" ->
       client (Uri.of_string !endpoint_address)

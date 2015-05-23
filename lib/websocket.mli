@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2014 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2015 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,9 +21,7 @@
     the spirit of the otherwise similar TCP functions of the [Lwt_io]
     module. The websocket protocol add message framing in addition of
     simple TCP communication, and this library implement framing and
-    unframing of messages, using Lwt streams. Thus the communicating
-    with the websocket server (or client) is done using an Lwt stream
-    and corresponding push function.
+    unframing of messages.
 *)
 
 module Frame : sig
@@ -50,24 +48,16 @@ module Frame : sig
              content   : string [@default ""];
            } [@@deriving show,create]
   (** The type representing websocket frames *)
-end
 
-val open_connection :
-  ?tls_authenticator:X509_lwt.authenticator ->
-  ?extra_headers:((string * string) list) -> Uri.t ->
-  (Frame.t Lwt_stream.t * (Frame.t option -> unit)) Lwt.t
-(** [open_connection ~tls_authenticator uri] will open a connection
-    (using TLS with [~authenticator] if provided) to the given uri,
-    and return a stream and a push function that can be used to send
-    and receive websocket messages. *)
+  val close : int -> t
+end
 
 val with_connection :
   ?tls_authenticator:X509_lwt.authenticator ->
-  ?extra_headers:((string * string) list) -> Uri.t ->
-  (Frame.t Lwt_stream.t * (Frame.t option -> unit) -> 'a Lwt.t) -> 'a Lwt.t
-(** Same as above except for here you provide a function that will be
-    in charge of communicating with the other end, and that takes a
-    stream and a push function as arguments. *)
+  ?extra_headers:((string * string) list) ->
+  Uri.t ->
+  (Frame.t -> Frame.t option) ->
+  (Frame.t -> unit Lwt.t) Lwt.t
 
 type server
 
@@ -76,11 +66,5 @@ val establish_server :
   ?buffer_size:int ->
   ?backlog:int ->
   Unix.sockaddr ->
-  (Uri.t -> Frame.t Lwt_stream.t * (Frame.t option -> unit) -> unit Lwt.t) ->
+  (int -> Uri.t -> (Frame.t -> unit Lwt.t) -> Frame.t -> Frame.t option) ->
   server
-(** Function in the spirit of [Lwt_io.establish_server], except that
-    the provided function takes a stream and a push function instead
-    of two channels.  Beware that when the Lwt thread returned by this
-    function terminates, no more data will be read from or written to
-    the socket.  Please refer to the [Lwt_io] doc for more
-    information. *)

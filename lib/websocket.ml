@@ -82,9 +82,14 @@ module Frame = struct
              content   : string [@default ""];
            } [@@deriving show,create]
 
-  let of_bytes ?opcode ?extension ?final ?content () =
-    let content = CCOpt.map Bytes.unsafe_to_string content in
-    create ?opcode ?extension ?final ?content ()
+  let of_bytes ?opcode ?extension ?final content =
+    let content = Bytes.unsafe_to_string content in
+    create ?opcode ?extension ?final ~content ()
+
+  let close code =
+    let content = Bytes.create 2 in
+    EndianBytes.BigEndian.set_int16 content 0 code;
+    of_bytes ~opcode:Opcode.Close content
 
   let of_subbytes ?opcode ?extension ?final content pos len =
     let content = Bytes.(sub content pos len |> unsafe_to_string) in
@@ -124,24 +129,55 @@ let set_bit v idx b =
 
 let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
-let read_frames ic push_to_client push_to_remote =
+let send_frame ~masked oc fr =
+  let open Frame in
+  let mask = random_string 4 in
+  let content = Bytes.unsafe_of_string fr.content in
+  let len = Bytes.length content in
+  let opcode = Opcode.to_enum fr.opcode in
+  let payload_len = match len with
+    | n when n < 126      -> len
+    | n when n < 1 lsl 16 -> 126
+    | _                   -> 127 in
+  let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
+  let hdr = hdr lor (opcode lsl 8) in
+  let hdr = set_bit hdr 7 masked in
+  let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
+  write_int16 oc hdr >>= fun () ->
+  (match len with
+   | n when n < 126        -> Lwt.return_unit
+   | n when n < (1 lsl 16) -> write_int16 oc n
+   | n                     -> Int64.of_int n |> write_int64 oc) >>= fun () ->
+  (if masked && len > 0 then begin
+      xor mask content;
+      Lwt_io.write_from_exactly oc (Bytes.unsafe_of_string mask) 0 4
+    end
+   else Lwt.return_unit) >>= fun () ->
+  Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
+  Lwt_io.flush oc
+
+let make_read_frame ~masked react (ic,oc) =
   let open Frame in
   let hdr = Bytes.create 2 in
   let mask = Bytes.create 4 in
   let close_with_code code =
     let content = Bytes.create 2 in
     EndianBytes.BigEndian.set_int16 content 0 code;
-    push_to_remote @@ Some (Frame.of_bytes ~opcode:Opcode.Close ~content ());
-    push_to_client None
+    send_frame ~masked oc @@ Frame.close code >>= fun () ->
+    Lwt.fail Exit in
+  let react frame =
+    match react frame with
+    | Some resp -> Lwt.async (fun () -> send_frame ~masked oc resp)
+    | None -> ()
   in
-  let rec read_frame () =
+  fun () ->
     Lwt_io.read_into_exactly ic hdr 0 2 >>= fun () ->
     let hdr_part1 = EndianBytes.BigEndian.get_int8 hdr 0 in
     let hdr_part2 = EndianBytes.BigEndian.get_int8 hdr 1 in
     let final = is_bit_set 7 hdr_part1 in
     let extension = int_value 4 3 hdr_part1 in
     let opcode = int_value 0 4 hdr_part1 in
-    let masked = is_bit_set 7 hdr_part2 in
+    let frame_masked = is_bit_set 7 hdr_part2 in
     let length = int_value 0 7 hdr_part2 in
     let opcode = Frame.Opcode.of_enum opcode |> CCOpt.get_exn in
     (match length with
@@ -149,100 +185,49 @@ let read_frames ic push_to_client push_to_remote =
      | 126            -> read_uint16 ic >|= Int64.of_int
      | 127            -> read_int64 ic
      | _              -> assert false) >|= Int64.to_int >>= fun payload_len ->
-    (if extension <> 0
-     then (close_with_code 1002; Lwt.fail Exit)
+    (if extension <> 0 then close_with_code 1002 else Lwt.return_unit) >>= fun () ->
+    (if Opcode.is_ctrl opcode && payload_len > 125 then close_with_code 1002
      else Lwt.return_unit) >>= fun () ->
-    (if Opcode.is_ctrl opcode && payload_len > 125
-     then (close_with_code 1002; Lwt.fail Exit)
-     else Lwt.return_unit) >>= fun () ->
-    (if masked
+    (if frame_masked
      then Lwt_io.read_into_exactly ic mask 0 4
      else Lwt.return_unit) >>= fun () ->
     (* Create a buffer that will be passed to the push function *)
     let content = Bytes.create payload_len in
     Lwt_io.read_into_exactly ic content 0 payload_len >>= fun () ->
-    let () = if masked then xor (Bytes.unsafe_to_string mask) content in
-    let frame = Frame.of_bytes ~opcode ~extension ~final ~content () in
+    let () = if frame_masked then xor (Bytes.unsafe_to_string mask) content in
+    let frame = Frame.of_bytes ~opcode ~extension ~final content in
     Lwt_log.debug_f ~section "<- %s" (Frame.show frame) >>= fun () ->
     match opcode with
 
     | Opcode.Ping ->
       (* Immediately reply with a pong, and pass the message to
          the user *)
-      push_to_remote (Some (Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final ~content ()));
-      push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()));
-      Lwt.return_unit
+      react @@ Frame.of_bytes ~opcode ~extension ~final content;
+      send_frame ~masked oc @@
+      Frame.of_bytes ~opcode:Opcode.Pong ~extension ~final content
 
     | Opcode.Close ->
-      (* Immediately echo, pass this last message to the user,
-         and close the stream *)
-      (if payload_len >= 2 then begin
-          push_to_remote (Some (Frame.of_subbytes ~opcode content 0 2));
-          push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()))
-        end
-       else begin
-         push_to_remote (Some (Frame.of_bytes ~opcode ()));
-         push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ()))
-       end
-      );
-      push_to_client None;
+      (* Immediately echo and pass this last message to the user *)
+      if payload_len >= 2 then begin
+        react @@ Frame.of_bytes ~opcode ~extension ~final content;
+        send_frame ~masked oc @@ Frame.of_subbytes ~opcode content 0 2 >>= fun () ->
+        Lwt.fail Exit
+      end
+      else begin
+        react @@ Frame.create ~opcode ~extension ~final ();
+        send_frame ~masked oc @@ Frame.close 1000 >>= fun () ->
+        Lwt.fail Exit
+      end
+
+    | Opcode.Pong
+    | Opcode.Text
+    | Opcode.Binary ->
+      react @@ Frame.of_bytes ~opcode ~extension ~final content;
       Lwt.return_unit
 
     | _ ->
-      push_to_client (Some (Frame.of_bytes ~opcode ~extension ~final ~content ()));
-      Lwt.return_unit
-
-  in
-  let rec read_forever () =
-    (try%lwt
-       read_frame ()
-     with exn ->
-       Lwt_log.debug ~section ~exn "read_frame" >>= fun () ->
-       (try push_to_client None with _ -> ()); Lwt.fail exn)
-    >>= fun () -> read_forever () in
-  read_forever ()
-
-let send_frames ~masked stream oc =
-  let open Frame in
-  let send_frame fr =
-    let mask = random_string 4 in
-    let content = Bytes.unsafe_of_string fr.content in
-    let len = Bytes.length content in
-    let opcode = Opcode.to_enum fr.opcode in
-    let payload_len = match len with
-      | n when n < 126      -> len
-      | n when n < 1 lsl 16 -> 126
-      | _                   -> 127 in
-    let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
-    let hdr = hdr lor (opcode lsl 8) in
-    let hdr = set_bit hdr 7 masked in
-    let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
-    write_int16 oc hdr >>= fun () ->
-    (match len with
-     | n when n < 126        -> Lwt.return_unit
-     | n when n < (1 lsl 16) -> write_int16 oc n
-     | n                     -> Int64.of_int n |> write_int64 oc) >>= fun () ->
-    (if masked && len > 0 then begin
-        xor mask content;
-        Lwt_io.write_from_exactly oc (Bytes.unsafe_of_string mask) 0 4
-      end
-     else Lwt.return_unit) >>= fun () ->
-    Lwt_io.write_from_exactly oc content 0 len >>= fun () ->
-    Lwt_io.flush oc in
-  let rec send_forever () =
-    Lwt_stream.next stream >>= fun frame ->
-    send_frame frame >>= fun () ->
-    Lwt_log.debug_f ~section "-> %s" (Frame.show frame) >>= fun () ->
-    (if frame.opcode = Opcode.Close
-    then begin
-      Lwt_log.debug ~section "send_frames wants to close the connection" >>= fun () ->
+      send_frame ~masked oc @@ Frame.create ~opcode:Opcode.Close () >>= fun () ->
       Lwt.fail Exit
-    end
-    else Lwt.return_unit) >>= fun () ->
-    send_forever ()
-  in send_forever ()
-
-let setup_socket = Lwt_io_ext.set_tcp_nodelay
 
 exception HTTP_Error of string
 
@@ -252,7 +237,7 @@ let is_upgrade =
   (function None -> false
           | Some(key) -> execp re key)
 
-let open_connection ?tls_authenticator ?(extra_headers = []) uri =
+let with_connection ?tls_authenticator ?(extra_headers = []) uri react =
   (* Initialisation *)
   Lwt_unix.gethostname () >>= fun myhostname ->
   let host = CCOpt.get_exn (Uri.host uri) in
@@ -276,9 +261,6 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
       else
         p, tls_authenticator
   in
-  let stream_in, push_in   = Lwt_stream.create ()
-  and stream_out, push_out = Lwt_stream.create () in
-
   let connect () =
     let open Cohttp in
     let nonce = random_string ~base64:true 16 in
@@ -295,7 +277,7 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
     Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
     let fd = Lwt_unix.socket
         (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
-    setup_socket fd;
+    Lwt_io_ext.set_tcp_nodelay fd;
     Lwt_unix.handle_unix_error
       (function
         | None -> Lwt_io_ext.open_connection ~fd sockaddr
@@ -303,57 +285,55 @@ let open_connection ?tls_authenticator ?(extra_headers = []) uri =
           Lwt_io_ext.open_connection ~fd ~host ~tls_authenticator sockaddr)
       tls_authenticator >>= fun (ic, oc) ->
     let drain_handshake () =
-      try%lwt
-        Lwt_unix.handle_unix_error
+      Lwt_unix.handle_unix_error
         (fun () -> CU.Request.write
             (fun writer -> Lwt.return_unit) req oc) () >>= fun () ->
-        Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
-            | `Ok r -> Lwt.return r
-            | `Eof -> Lwt.fail End_of_file
-            | `Invalid s -> Lwt.fail @@ Failure s)
-        >>= fun response ->
-        let status = Response.status response in
-        let headers = CU.Response.headers response in
-        if Code.(is_error @@ code_of_status status)
-        then
-          Lwt.fail @@ HTTP_Error Code.(string_of_status status)
-        else
-          (
-            assert (Response.version response = `HTTP_1_1);
-            assert (status = `Switching_protocols);
-            assert (CCOpt.map String.lowercase @@ Header.get headers "upgrade" =
-                                                  Some "websocket");
-            assert (is_upgrade @@ C.Header.get headers "connection");
-            assert (Header.get headers "sec-websocket-accept" =
-                    Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum));
-            Lwt_log.notice_f "Connected to %s" (Uri.to_string uri)
-          )
-      with exn -> Lwt_io_ext.(safe_close ic) >>= fun () -> Lwt.fail exn
-
+      Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
+          | `Ok r -> Lwt.return r
+          | `Eof -> Lwt.fail End_of_file
+          | `Invalid s -> Lwt.fail @@ Failure s)
+      >>= fun response ->
+      let status = Response.status response in
+      let headers = CU.Response.headers response in
+      if Code.(is_error @@ code_of_status status)
+      then Lwt.fail @@ HTTP_Error Code.(string_of_status status)
+      else if not (Response.version response = `HTTP_1_1
+                   && status = `Switching_protocols
+                   && CCOpt.map String.lowercase @@
+                   Header.get headers "upgrade" = Some "websocket"
+                   && is_upgrade @@ C.Header.get headers "connection"
+                   && Header.get headers "sec-websocket-accept" =
+                      Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
+                  )
+      then Lwt.fail_with "Protocol error"
+      else Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri)
     in
-    drain_handshake () >>= fun () ->
+    (try%lwt
+      drain_handshake ()
+     with exn ->
+       Lwt_io_ext.(safe_close ic) >>= fun () ->
+       Lwt.fail exn)
+    >>= fun () ->
     Lwt.return (ic, oc)
   in
-  connect () >>= fun (ic, oc) ->
-  Lwt.async (fun () ->
-      (try%lwt Lwt.join
-        [read_frames ic push_in push_out;
-         send_frames ~masked:true stream_out oc]
-       with exn -> Lwt.fail exn
-      ) [%finally Lwt_io_ext.safe_close ic]);
-  Lwt.return (stream_in, push_out)
-
-let with_connection ?tls_authenticator ?(extra_headers = []) uri f =
-  open_connection
-    ?tls_authenticator ~extra_headers uri >>= fun (stream_in, push_out) ->
-  f (stream_in, push_out)
+  connect () >|= fun (ic, oc) ->
+  let read_frame = make_read_frame ~masked:true react (ic, oc) in
+  let rec read_frames_forever () =
+    (try%lwt
+      read_frame ()
+     with exn ->
+       Lwt_io_ext.(safe_close ic) >>= fun () ->
+       Lwt.fail exn)
+    >>= read_frames_forever
+  in
+  Lwt.async read_frames_forever;
+  send_frame ~masked:true oc
 
 type server = Lwt_io_ext.server = { shutdown : unit Lazy.t }
 
-let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
+let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
+  let id = ref 0 in
   let server_fun (ic, oc) =
-    let stream_in, push_in   = Lwt_stream.create ()
-    and stream_out, push_out = Lwt_stream.create () in
     (CU.Request.read ic >>= function
       | `Ok r -> Lwt.return r
       | `Eof ->
@@ -363,18 +343,20 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
       | `Invalid reason ->
         Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason >>= fun () ->
         Lwt.fail @@ Failure reason) >>= fun request ->
-    let meth    = C.Request.meth request
-    and version = C.Request.version request
-    and uri     = C.Request.uri request
-    and headers = C.Request.headers request in
+    let meth    = C.Request.meth request in
+    let version = C.Request.version request in
+    let uri     = C.Request.uri request in
+    let headers = C.Request.headers request in
+    if not (
+        version = `HTTP_1_1
+        && meth = `GET
+        && CCOpt.map String.lowercase @@
+        C.Header.get headers "upgrade" = Some "websocket"
+        && is_upgrade (C.Header.get headers "connection")
+      )
+    then Lwt.fail_with "Protocol error"
+    else Lwt.return_unit >>= fun () ->
     let key = CCOpt.get_exn @@ C.Header.get headers "sec-websocket-key" in
-    let () =
-      assert (version = `HTTP_1_1);
-      assert (meth = `GET);
-      assert (CCOpt.map String.lowercase @@ C.Header.get headers "upgrade"
-                                            = Some "websocket");
-      assert (is_upgrade (C.Header.get headers "connection"))
-    in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";
@@ -385,21 +367,29 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr f =
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    Lwt.pick [read_frames ic push_in push_out;
-              send_frames ~masked:false stream_out oc;
-              f uri (stream_in, push_out)]
+    let read_frame = make_read_frame
+        ~masked:false (react !id uri (send_frame ~masked:false oc)) (ic,oc) in
+    incr id;
+    let rec read_frames_forever () =
+      read_frame ()
+      >>= read_frames_forever
+    in
+    read_frames_forever ()
   in
   Lwt.async_exception_hook :=
     (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
   Lwt_io_ext.establish_server
     ?certificate
-    ~setup_clients_sockets:setup_socket
+    ~setup_clients_sockets:Lwt_io_ext.set_tcp_nodelay
     ?buffer_size ?backlog sockaddr
     (fun (ic,oc) ->
        (try%lwt
          server_fun (ic,oc)
         with
-        | End_of_file -> Lwt_log.info ~section "Client closed connection"
+        | End_of_file ->
+          Lwt_log.info ~section "Client closed connection"
+        | Exit ->
+          Lwt_log.info ~section "Server closed connection normally"
         | exn -> Lwt.fail exn
        ) [%finally Lwt_io_ext.safe_close ic]
     )
