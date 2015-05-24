@@ -4,14 +4,6 @@ Websocket library for OCaml
 Author: Vincent Bernardoff <vb@luminar.eu.org>
 Webpage: https://github.com/vbmithr/ocaml-websocket
 
-Dependencies:
-=============
-
-* tls
-* lwt
-* cohttp
-* ocplib-endian
-
 Bugs:
 =====
 
