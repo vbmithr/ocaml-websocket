@@ -27,14 +27,11 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
     Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
     let drain_handshake () =
-      Lwt_unix.handle_unix_error
-        (fun () -> CU.Request.write
-            (fun writer -> Lwt.return_unit) req oc) () >>= fun () ->
-      Lwt_unix.handle_unix_error CU.Response.read ic >>= (function
+      CU.Request.write (fun writer -> Lwt.return_unit) req oc >>= fun () ->
+      CU.Response.read ic >>= (function
           | `Ok r -> Lwt.return r
           | `Eof -> Lwt.fail End_of_file
-          | `Invalid s -> Lwt.fail @@ Failure s)
-      >>= fun response ->
+          | `Invalid s -> Lwt.fail @@ Failure s) >>= fun response ->
       let status = C.Response.status response in
       let headers = CU.Response.headers response in
       if C.Code.(is_error @@ code_of_status status)
