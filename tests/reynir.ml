@@ -1,4 +1,4 @@
-open Websocket
+open Websocket_lwt
 open Lwt.Infix
 
 let h = Hashtbl.create 17

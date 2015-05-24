@@ -1,5 +1,5 @@
 open Lwt.Infix
-open Websocket
+open Websocket_lwt
 
 let section = Lwt_log.Section.make "wscat"
 

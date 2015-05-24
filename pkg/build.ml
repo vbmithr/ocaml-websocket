@@ -5,7 +5,7 @@
 let () =
   Pkg.describe "websocket" ~builder:`OCamlbuild [
     Pkg.lib "pkg/META";
-    Pkg.lib ~exts:Exts.module_library "lib/websocket";
+    Pkg.lib ~exts:Exts.module_library "lib/websocket_lwt";
     Pkg.bin ~auto:true "tests/wscat";
     Pkg.bin ~auto:true "tests/reynir";
   ]
