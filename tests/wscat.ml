@@ -46,7 +46,7 @@ let _ =
   Arg.parse speclist anon_fun usage_msg;
 
   let main () =
-    Tls_lwt.rng_init () >>= fun () ->
+    Nocrypto_entropy_lwt.initialize () >>= fun () ->
     match !server_port, !endpoint_address with
     | p, "" when p <> "" ->
       begin
