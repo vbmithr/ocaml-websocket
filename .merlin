@@ -1,4 +1,4 @@
-PKG websocket
+PRJ websocket
 S lib
 S tests
 B _build/lib
