@@ -50,22 +50,23 @@ let handler id uri recv send =
     Hashtbl.remove h id;
     Lwt.fail exn
 
-let main port =
-  establish_server (Unix.ADDR_INET (Unix.inet_addr_any, port)) handler
+let main uri =
+  Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
+  Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server ->
+  establish_server ~ctx:default_ctx ~mode:server handler)
 
 let () =
-  let server_port = ref 14458 in
+  let uri = ref "http://localhost:9001" in
 
   let speclist = Arg.align
       [
-        "-s", Arg.Set_int server_port, "<int> Run server on specified port";
         "-v", Arg.String (fun s -> Lwt_log.(add_rule s Info)), "<section> Put <section> to Info level";
         "-vv", Arg.String (fun s -> Lwt_log.(add_rule s Debug)), "<section> Put <section> to Debug level"
       ]
   in
-  let anon_fun s = () in
+  let anon_fun s = uri := s in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg;
 
-  ignore @@ main !server_port;
+  ignore @@ main @@ Uri.of_string !uri;
   Lwt_main.run (fst (Lwt.wait ()))

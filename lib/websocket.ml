@@ -23,6 +23,11 @@ module CB = Cohttp_lwt_body
 
 let section = Lwt_log.Section.make "websocket"
 
+let safe_close ic =
+  Lwt.catch
+    (fun () -> Lwt_io.close ic)
+    (fun _ -> Lwt.return_unit)
+
 let random_string ?(base64=false) size =
   Nocrypto.Rng.generate size |>
   (if base64 then Nocrypto.Base64.encode else fun s -> s) |>
@@ -202,30 +207,13 @@ let is_upgrade =
   (function None -> false
           | Some(key) -> execp re key)
 
-let with_connection ?tls_authenticator ?(extra_headers = []) uri =
-  (* Initialisation *)
-  Lwt_unix.gethostname () >>= fun myhostname ->
-  let host = CCOpt.get_exn (Uri.host uri) in
-  let port = Uri.port uri in
-  let scheme = Uri.scheme uri in
-  X509_lwt.authenticator `No_authentication_I'M_STUPID >>= fun default_authenticator ->
-  let port, tls_authenticator =
-    match port, scheme with
-    | None, None -> 80, tls_authenticator
-    | Some p, None -> p, tls_authenticator
-    | None, Some s -> (
-        if s = "https" || s = "wss" then
-          443, (if tls_authenticator = None
-                then Some default_authenticator
-                else tls_authenticator)
-        else 80, tls_authenticator
-      )
-    | Some p, Some s ->
-      if s = "https" || s = "wss" then
-        p, Some default_authenticator
-      else
-        p, tls_authenticator
-  in
+let set_tcp_nodelay flow =
+  let open Conduit_lwt_unix in
+  match flow with
+  | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
+  | _ -> ()
+
+let with_connection ?(extra_headers = []) ~ctx client uri =
   let connect () =
     let open Cohttp in
     let nonce = random_string ~base64:true 16 in
@@ -239,16 +227,8 @@ let with_connection ?tls_authenticator ?(extra_headers = []) uri =
                       "Sec-WebSocket-Version" , "13"] in
     let headers = Header.of_list hdr_list in
     let req = Request.make ~headers uri in
-    Lwt_io_ext.sockaddr_of_dns host (string_of_int port) >>= fun sockaddr ->
-    let fd = Lwt_unix.socket
-        (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
-    Lwt_io_ext.set_tcp_nodelay fd;
-    Lwt_unix.handle_unix_error
-      (function
-        | None -> Lwt_io_ext.open_connection ~fd sockaddr
-        | Some tls_authenticator ->
-          Lwt_io_ext.open_connection ~fd ~host ~tls_authenticator sockaddr)
-      tls_authenticator >>= fun (ic, oc) ->
+    Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
+    set_tcp_nodelay flow;
     let drain_handshake () =
       Lwt_unix.handle_unix_error
         (fun () -> CU.Request.write
@@ -285,9 +265,7 @@ let with_connection ?tls_authenticator ?(extra_headers = []) uri =
   let read_frame = make_read_frame ~masked:true (ic, oc) in
   read_frame, send_frame ~masked:true oc
 
-type server = Lwt_io_ext.server = { shutdown : unit Lazy.t }
-
-let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
+let establish_server ?timeout ?stop ~ctx ~mode react =
   let id = ref @@ -1 in
   let server_fun id (ic, oc) =
     (CU.Request.read ic >>= function
@@ -329,12 +307,10 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
   in
   Lwt.async_exception_hook :=
     (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
-  Lwt_io_ext.establish_server
-    ?certificate
-    ~setup_clients_sockets:Lwt_io_ext.set_tcp_nodelay
-    ?buffer_size ?backlog sockaddr
-    (fun (ic,oc) ->
+  Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
+    (fun flow ic oc ->
        (try%lwt
+         set_tcp_nodelay flow;
           incr id;
           server_fun !id (ic,oc)
         with
@@ -343,5 +319,5 @@ let establish_server ?certificate ?buffer_size ?backlog sockaddr react =
         | Exit ->
           Lwt_log.info ~section "Server closed connection"
         | exn -> Lwt.fail exn
-       ) [%finally Lwt_io_ext.safe_close ic]
+       ) [%finally safe_close ic]
     )

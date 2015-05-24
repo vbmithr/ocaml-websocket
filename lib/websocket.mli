@@ -53,19 +53,18 @@ module Frame : sig
 end
 
 val with_connection :
-  ?tls_authenticator:X509_lwt.authenticator ->
   ?extra_headers:((string * string) list) ->
+  ctx:Conduit_lwt_unix.ctx ->
+  Conduit_lwt_unix.client ->
   Uri.t ->
   ((unit -> Frame.t Lwt.t) * (Frame.t -> unit Lwt.t)) Lwt.t
 
-type server
-
 val establish_server :
-  ?certificate:X509_lwt.priv ->
-  ?buffer_size:int ->
-  ?backlog:int ->
-  Unix.sockaddr ->
-  (int -> Uri.t ->
-   (unit -> Frame.t Lwt.t) ->
-   (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
-  server
+  ?timeout:int ->
+  ?stop:unit Conduit_lwt_unix.io ->
+  ctx:Conduit_lwt_unix.ctx ->
+  mode:Conduit_lwt_unix.server ->
+  (int ->
+   Uri.t ->
+   (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
+  unit Conduit_lwt_unix.io

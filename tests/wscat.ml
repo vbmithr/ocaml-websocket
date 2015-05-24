@@ -5,7 +5,9 @@ let section = Lwt_log.Section.make "wscat"
 
 let client uri =
   let open Frame in
-  with_connection uri >>= fun (recv, send) ->
+  Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
+  Conduit_lwt_unix.(endp_to_client ~ctx:default_ctx endp >>= fun client ->
+  with_connection ~ctx:default_ctx client uri) >>= fun (recv, send) ->
   let react fr =
     match fr.opcode with
     | Opcode.Ping -> send @@ Frame.create ~opcode:Opcode.Pong ()
@@ -38,7 +40,7 @@ let client uri =
       send @@ Frame.create ~content () >>= pushf
   in pushf () <?> react_forever ()
 
-let server ?certificate sockaddr =
+let server uri =
   let echo_fun id uri recv send =
     let open Frame in
     let react fr =
@@ -67,43 +69,26 @@ let server ?certificate sockaddr =
     in
     react_forever ()
   in
-  establish_server ?certificate sockaddr echo_fun
+  Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
+  Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server ->
+  establish_server ~ctx:default_ctx ~mode:server echo_fun)
+
+let main is_server uri =
+  if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
+  else client uri
 
 let _ =
-  let server_port = ref "" in
-  let endpoint_address = ref "" in
-  let cert_dir = ref None in
+  let uri = ref "" in
+  let server = ref false in
 
   let speclist = Arg.align
       [
-        "-tls", Arg.String (fun s -> cert_dir := Some s), "<cert_dir> Use TLS for the server";
-        "-s", Arg.Set_string server_port, "<int> Run server on specified port";
+        "-s", Arg.Set server, "<bool> Run as server";
         "-v", Arg.String (fun s -> Lwt_log.(add_rule s Info)), "<section> Put <section> to Info level";
         "-vv", Arg.String (fun s -> Lwt_log.(add_rule s Debug)), "<section> Put <section> to Debug level"
       ]
   in
-  let anon_fun s = endpoint_address := s in
+  let anon_fun s = uri := s in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg;
-
-  let main () =
-    Nocrypto_entropy_lwt.initialize () >>= fun () ->
-    match !server_port, !endpoint_address with
-    | p, "" when p <> "" ->
-      begin
-        Lwt_io_ext.sockaddr_of_dns "localhost" !server_port >>= fun sa ->
-        let%lwt certificate = match !cert_dir with
-          | None -> Lwt.return None
-          | Some dir ->
-            let cert = dir ^ "/server.crt" in
-            let priv_key = dir ^ "/server.key" in
-            X509_lwt.private_of_pems ~cert ~priv_key >|= fun c -> Some c
-        in
-        ignore (server ?certificate sa);
-        fst @@ Lwt.wait ()
-      end
-    | _, endpoint when endpoint <> "" ->
-      client (Uri.of_string !endpoint_address)
-    | _ -> Lwt_io.eprintl "Please specify a server port or a valid URI."
-  in
-  Lwt_main.run (main ())
+  Lwt_main.run @@ main server @@ Uri.of_string !uri
