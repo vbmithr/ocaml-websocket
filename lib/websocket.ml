@@ -246,7 +246,7 @@ let with_connection ?(extra_headers = C.Header.init ()) ~ctx client uri =
     (try%lwt
       drain_handshake ()
      with exn ->
-       Lwt_io_ext.(safe_close ic) >>= fun () ->
+       safe_close ic >>= fun () ->
        Lwt.fail exn)
     >>= fun () ->
     Lwt.return (ic, oc)
