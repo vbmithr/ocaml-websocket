@@ -15,19 +15,6 @@
  *
  *)
 
-open Lwt.Infix
-
-module C = Cohttp
-module CU = Cohttp_lwt_unix
-module CB = Cohttp_lwt_body
-
-let section = Lwt_log.Section.make "websocket"
-
-let safe_close ic =
-  Lwt.catch
-    (fun () -> Lwt_io.close ic)
-    (fun _ -> Lwt.return_unit)
-
 let random_string ?(base64=false) size =
   Nocrypto.Rng.generate size |>
   (if base64 then Nocrypto.Base64.encode else fun s -> s) |>
@@ -106,6 +93,26 @@ let xor mask msg =
     Bytes.set msg i Char.(code mask.[i mod 4] lxor code (Bytes.get msg i) |> chr)
   done
 
+let is_bit_set idx v =
+  (v lsr idx) land 1 = 1
+
+let set_bit v idx b =
+  if b then v lor (1 lsl idx) else v land (lnot (1 lsl idx))
+
+let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
+
+open Lwt.Infix
+
+module C = Cohttp
+module CU = Cohttp_lwt_unix
+
+let section = Lwt_log.Section.make "websocket"
+
+let safe_close ic =
+  Lwt.catch
+    (fun () -> Lwt_io.close ic)
+    (fun _ -> Lwt.return_unit)
+
 let read_uint16 ic =
   let buf = Bytes.create 2 in
   Lwt_io.read_into_exactly ic buf 0 2 >|= fun () ->
@@ -125,14 +132,6 @@ let write_int64 oc v =
   let buf = Bytes.create 8 in
   EndianBytes.BigEndian.set_int64 buf 0 v;
   Lwt_io.write oc (buf |> Bytes.unsafe_to_string)
-
-let is_bit_set idx v =
-  (v lsr idx) land 1 = 1
-
-let set_bit v idx b =
-  if b then v lor (1 lsl idx) else v land (lnot (1 lsl idx))
-
-let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
 let send_frame ~masked oc fr =
   let open Frame in
@@ -201,31 +200,21 @@ let make_read_frame ~masked (ic,oc) =
 
 exception HTTP_Error of string
 
-let is_upgrade =
-  let open Re in
-  let re = compile (seq [ rep any; no_case (str "upgrade") ]) in
-  (function None -> false
-          | Some(key) -> execp re key)
-
 let set_tcp_nodelay flow =
   let open Conduit_lwt_unix in
   match flow with
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
-let with_connection ?(extra_headers = []) ~ctx client uri =
+let with_connection ?(extra_headers = C.Header.init ()) ~ctx client uri =
   let connect () =
     let open Cohttp in
     let nonce = random_string ~base64:true 16 in
-    let in_extra_hdrs key =
-      let lkey = String.lowercase key in
-      (List.find_all (fun (k,v) -> (String.lowercase k) = lkey) extra_headers) = [] in
-    let hdr_list = extra_headers @ List.filter (fun (k,v) -> in_extra_hdrs k)
-                     ["Upgrade"               , "websocket";
-                      "Connection"            , "Upgrade";
-                      "Sec-WebSocket-Key"     , nonce;
-                      "Sec-WebSocket-Version" , "13"] in
-    let headers = Header.of_list hdr_list in
+    let headers = C.Header.add_list extra_headers
+        ["Upgrade"               , "websocket";
+         "Connection"            , "Upgrade";
+         "Sec-WebSocket-Key"     , nonce;
+         "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
     Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
@@ -246,7 +235,8 @@ let with_connection ?(extra_headers = []) ~ctx client uri =
                    && status = `Switching_protocols
                    && CCOpt.map String.lowercase @@
                    Header.get headers "upgrade" = Some "websocket"
-                   && is_upgrade @@ C.Header.get headers "connection"
+                   && List.mem "upgrade" @@ List.map String.lowercase @@
+                   C.Header.get_multi headers "connection"
                    && Header.get headers "sec-websocket-accept" =
                       Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
                   )
@@ -286,7 +276,8 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         && meth = `GET
         && CCOpt.map String.lowercase @@
         C.Header.get headers "upgrade" = Some "websocket"
-        && is_upgrade (C.Header.get headers "connection")
+        && List.mem "upgrade"
+        @@ List.map String.lowercase @@ C.Header.get_multi headers "connection"
       )
     then Lwt.fail_with "Protocol error"
     else Lwt.return_unit >>= fun () ->
