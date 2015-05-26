@@ -57,14 +57,14 @@ val with_connection :
   ctx:Conduit_lwt_unix.ctx ->
   Conduit_lwt_unix.client ->
   Uri.t ->
-  ((unit -> Frame.t Conduit_lwt_unix.io) * (Frame.t -> unit Conduit_lwt_unix.io)) Conduit_lwt_unix.io
+  ((unit -> Frame.t Lwt.t) * (Frame.t -> unit Lwt.t)) Lwt.t
 
 val establish_server :
   ?timeout:int ->
-  ?stop:unit Conduit_lwt_unix.io ->
+  ?stop:unit Lwt.t ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
    Uri.t ->
-   (unit -> Frame.t Conduit_lwt_unix.io) -> (Frame.t -> unit Conduit_lwt_unix.io) -> unit Conduit_lwt_unix.io) ->
-  unit Conduit_lwt_unix.io
+   (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
+  unit Lwt.t
