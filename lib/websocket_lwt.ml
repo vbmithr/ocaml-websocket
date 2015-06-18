@@ -108,7 +108,6 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
     CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
     let send_frame = send_frame ~masked:false oc in
     let read_frame = make_read_frame ~masked:false (ic, oc) in
-
     react id uri read_frame send_frame
   in
   Lwt.async_exception_hook :=
