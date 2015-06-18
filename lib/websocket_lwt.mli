@@ -24,6 +24,7 @@
     unframing of messages.
 *)
 
+val section : Lwt_log_core.section
 
 module Frame : sig
   module Opcode : sig
