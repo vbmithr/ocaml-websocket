@@ -125,3 +125,34 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         | exn -> Lwt.fail exn
        ) [%finally Lwt_io.close ic]
     )
+
+let mk_frame_stream recv =
+  let f () =
+    let%lwt fr = recv () in
+    match fr.Frame.opcode with
+    | Frame.Opcode.Close -> Lwt.return_none
+    | _ -> Lwt.return (Some fr)
+  in
+  Lwt_stream.from f
+
+let establish_standard_server ?timeout ?stop ~ctx ~mode react =
+  let f id req recv send =
+    let recv fr =
+      let%lwt fr = recv () in
+      match fr.Frame.opcode with
+      | Frame.Opcode.Ping ->
+          send @@ Frame.create
+            ~opcode:Frame.Opcode.Pong () >>= fun () -> Lwt.return fr
+      | Frame.Opcode.Close ->
+          (* Immediately echo and pass this last message to the user *)
+          (if String.length fr.Frame.content >= 2 then
+             send @@ Frame.create ~opcode:Frame.Opcode.Close
+               ~content:(String.sub fr.Frame.content 0 2) ()
+           else send @@ Frame.close 1000
+          ) >>= fun () -> Lwt.return fr
+
+      | _ -> Lwt.return fr
+    in
+    react id req recv send
+  in
+  establish_server ?timeout ?stop ~ctx ~mode f
