@@ -68,6 +68,6 @@ val establish_server :
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
-   Uri.t ->
+   Cohttp.Request.t ->
    (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   unit Lwt.t
