@@ -24,6 +24,7 @@
     unframing of messages.
 *)
 
+
 module Frame : sig
   module Opcode : sig
     type t =
@@ -70,4 +71,26 @@ val establish_server :
   (int ->
    Uri.t ->
    (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
+  unit Lwt.t
+
+(** {2 Convenient functions} *)
+
+(** Build a stream from a function to receive frames. When a Close
+ frame is received, no more frames are available from the stream. *)
+val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
+
+(** Same as {!establish_server} but some frame are already handled
+  and responded:
+  - A Pong frame is sent in response to a Ping frame,
+  - a Close frame is sent in response to a Close frame.
+  All frames are then passed to the frame handling function.
+*)
+val establish_standard_server :
+  ?timeout:int ->
+  ?stop:unit Lwt.t ->
+  ctx:Conduit_lwt_unix.ctx ->
+  mode:Conduit_lwt_unix.server ->
+  (int ->
+   Uri.t ->
+     (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   unit Lwt.t
