@@ -41,7 +41,7 @@ let client uri =
   in pushf () <?> react_forever ()
 
 let server uri =
-  let echo_fun id uri recv send =
+  let echo_fun id req recv send =
     let open Frame in
     let react fr =
       match fr.opcode with
