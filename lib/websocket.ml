@@ -68,11 +68,20 @@ module Frame = struct
     let is_ctrl opcode = to_enum opcode > 7
   end
 
-  type t = { opcode    : Opcode.t [@default Opcode.Text];
-             extension : int [@default 0];
-             final     : bool [@default true];
-             content   : string [@default ""];
-           } [@@deriving show,create]
+  type t = { opcode: Opcode.t;
+             extension: int;
+             final: bool;
+             content: string;
+           } [@@deriving show]
+
+  let create
+      ?(opcode=Opcode.Text)
+      ?(extension=0)
+      ?(final=true)
+      ?(content="") () =
+    {
+      opcode; extension; final; content
+    }
 
   let of_bytes ?opcode ?extension ?final content =
     let content = Bytes.unsafe_to_string content in
@@ -105,16 +114,16 @@ module IO(IO: Cohttp.S.IO) = struct
   open IO
 
   let read_uint16 ic =
-    read_exactly ic 2 >>= function
-    | Some buf ->
+    read ic 2 >>= fun buf ->
+    if String.length buf = 2 then
       return @@ EndianString.BigEndian.get_uint16 buf 0
-    | None -> failwith "read_uint16"
+    else failwith "read_uint16"
 
   let read_int64 ic =
-    read_exactly ic 8 >>= function
-      | Some buf ->
-        return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
-      | None -> failwith "read_int64"
+    read ic 8 >>= fun buf ->
+    if String.length buf = 2 then
+      return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
+    else failwith "read_int64"
 
   let write_int16 oc v =
     let buf = Bytes.create 2 in
@@ -162,9 +171,9 @@ module IO(IO: Cohttp.S.IO) = struct
       send_frame ~masked oc @@ Frame.close code >>= fun () ->
       raise Exit in
     fun () ->
-      (read_exactly ic 2 >>= function
-        | Some hdr -> return hdr
-        | None -> failwith "read header"
+      (read ic 2 >>= fun hdr ->
+       if String.length hdr = 2 then return hdr
+       else failwith "read header"
       ) >>= fun hdr ->
       if String.length hdr < 2 then raise Exit;
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
@@ -184,17 +193,17 @@ module IO(IO: Cohttp.S.IO) = struct
       (if Opcode.is_ctrl opcode && payload_len > 125 then close_with_code 1002
        else return ()) >>= fun () ->
       (if frame_masked
-       then read_exactly ic 4 >>= function
-         | Some mask -> return mask
-         | None -> failwith "read mask"
+       then read ic 4 >>= fun mask ->
+         if String.length mask = 4 then return mask
+         else failwith "read mask"
        else return "") >>= fun mask ->
       (* Create a buffer that will be passed to the push function *)
-      (read_exactly ic payload_len >>= function
-        | Some content -> return content
-        | None -> failwith "read content")
-      >>= fun content ->
-      let content = Bytes.unsafe_of_string content in
-      let () = if frame_masked then xor mask content in
-      let frame = Frame.of_bytes ~opcode ~extension ~final content in
+      (read ic payload_len >>= fun payload ->
+       if String.length payload = payload_len then return payload
+       else failwith "read payload")
+      >>= fun payload ->
+      let payload = Bytes.unsafe_of_string payload in
+      let () = if frame_masked then xor mask payload in
+      let frame = Frame.of_bytes ~opcode ~extension ~final payload in
       return frame
 end

@@ -9,4 +9,5 @@ true: bin_annot, debug, safe_string
           package(cohttp.lwt), \
           package(ppx_deriving.std), \
           package(containers), \
+          package(nocrypto), \
           package(conduit)

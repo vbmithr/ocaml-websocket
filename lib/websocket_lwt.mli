@@ -42,12 +42,15 @@ module Frame : sig
   end
   (** Type representing websocket opcodes *)
 
-  type t = { opcode    : Opcode.t [@default Opcode.Text];
-             extension : int [@default 0];
-             final     : bool [@default true];
-             content   : string [@default ""];
-           } [@@deriving show,create]
+  type t = { opcode: Opcode.t;
+             extension: int;
+             final: bool;
+             content: string;
+           } [@@deriving show]
   (** The type representing websocket frames *)
+
+  val create : ?opcode:Opcode.t -> ?extension:int -> ?final:bool ->
+    ?content:string -> unit -> t
 
   val close : int -> t
 end

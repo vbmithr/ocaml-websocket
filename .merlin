@@ -11,3 +11,4 @@ PKG ocplib-endian
 PKG containers
 PKG ppx_deriving.std
 PKG conduit.lwt-unix
+PKG nocrypto
