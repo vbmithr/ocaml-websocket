@@ -4,7 +4,7 @@ open Lwt.Infix
 let h = Hashtbl.create 17
 let section = Lwt_log.Section.make "reynir"
 
-let handler id uri recv send =
+let handler id req recv send =
   (try
      Hashtbl.find h id
    with Not_found ->

@@ -70,28 +70,32 @@ val establish_server :
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
-   Uri.t ->
+   Cohttp.Request.t ->
    (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   unit Lwt.t
 
-(** {2 Convenient functions} *)
+(** {2 Convenience functions} *)
 
-(** Build a stream from a function to receive frames. When a Close
- frame is received, no more frames are available from the stream. *)
 val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
+(** [mk_frame_stream f] is a stream build from [f], which role is to
+    receive the frames that will form the stream. When a Close frame
+    is received, the stream will be closed. *)
 
-(** Same as {!establish_server} but some frame are already handled
-  and responded:
-  - A Pong frame is sent in response to a Ping frame,
-  - a Close frame is sent in response to a Close frame.
-  All frames are then passed to the frame handling function.
-*)
 val establish_standard_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
-   Uri.t ->
+   Cohttp.Request.t ->
      (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   unit Lwt.t
+(** [establish_standard_server] is like {!establish_server} but with
+    automatic handling of some frames:
+
+    - A Pong frame is sent in response to a Ping frame,
+    - a Close frame is sent in response to a Close frame.
+
+    All frames are then passed to the frame handling function.
+*)
+

@@ -139,7 +139,6 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         Lwt.fail @@ Failure reason) >>= fun request ->
     let meth    = C.Request.meth request in
     let version = C.Request.version request in
-    let uri     = C.Request.uri request in
     let headers = C.Request.headers request in
     if not (
         version = `HTTP_1_1
@@ -163,7 +162,7 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
     CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
     let send_frame = send_frame ~masked:false oc in
     let read_frame = make_read_frame ~masked:false (ic, oc) in
-    react id uri read_frame send_frame
+    react id request read_frame send_frame
   in
   Lwt.async_exception_hook :=
     (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
@@ -193,6 +192,7 @@ let mk_frame_stream recv =
 
 let establish_standard_server ?timeout ?stop ~ctx ~mode react =
   let f id uri recv send =
+  let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
       match fr.Frame.opcode with
@@ -212,3 +212,4 @@ let establish_standard_server ?timeout ?stop ~ctx ~mode react =
     react id uri recv send
   in
   establish_server ?timeout ?stop ~ctx ~mode f
+
