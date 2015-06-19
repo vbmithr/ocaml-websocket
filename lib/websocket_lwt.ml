@@ -191,7 +191,6 @@ let mk_frame_stream recv =
   Lwt_stream.from f
 
 let establish_standard_server ?timeout ?stop ~ctx ~mode react =
-  let f id uri recv send =
   let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
@@ -212,4 +211,3 @@ let establish_standard_server ?timeout ?stop ~ctx ~mode react =
     react id uri recv send
   in
   establish_server ?timeout ?stop ~ctx ~mode f
-
