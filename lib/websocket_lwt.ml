@@ -208,6 +208,6 @@ let establish_standard_server ?timeout ?stop ~ctx ~mode react =
 
       | _ -> Lwt.return fr
     in
-    react id uri recv send
+    react id req recv send
   in
   establish_server ?timeout ?stop ~ctx ~mode f
