@@ -13,6 +13,56 @@ let set_tcp_nodelay flow =
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
+(*c==v=[String.split_string]=1.2====*)
+let split_string ?(keep_empty=false) s chars =
+  let len = String.length s in
+  let rec iter acc pos =
+    if pos >= len then
+      match acc with
+        "" -> if keep_empty then [""] else []
+      | _ -> [acc]
+    else
+      if List.mem s.[pos] chars then
+        match acc with
+          "" ->
+            if keep_empty then
+              "" :: iter "" (pos + 1)
+            else
+              iter "" (pos + 1)
+        | _ -> acc :: (iter "" (pos + 1))
+      else
+        iter (Printf.sprintf "%s%c" acc s.[pos]) (pos + 1)
+  in
+  iter "" 0
+(*/c==v=[String.split_string]=1.2====*)
+
+(*c==v=[String.strip_string]=1.0====*)
+let strip_string s =
+  let len = String.length s in
+  let rec iter_first n =
+    if n >= len then
+      None
+    else
+      match s.[n] with
+        ' ' | '\t' | '\n' | '\r' -> iter_first (n+1)
+      | _ -> Some n
+  in
+  match iter_first 0 with
+    None -> ""
+  | Some first ->
+      let rec iter_last n =
+        if n <= first then
+          None
+        else
+          match s.[n] with
+            ' ' | '\t' | '\n' | '\r' -> iter_last (n-1)
+          |	_ -> Some n
+      in
+      match iter_last (len-1) with
+        None -> String.sub s first 1
+      |	Some last -> String.sub s first ((last-first)+1)
+(*/c==v=[String.strip_string]=1.0====*)
+
 let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
   let connect () =
     let module C = Cohttp in
@@ -67,6 +117,12 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
        send_frame ~masked:true oc frame
      with exn -> Lwt.fail exn)
 
+let headers_connection_contain_upgrade headers =
+  let module C = Cohttp in
+  let mem_upgrade s = strip_string (String.lowercase s) = "upgrade" in
+  let pred str = List.exists mem_upgrade (split_string str [',']) in
+  List.exists pred (C.Header.get_multi headers "connection")
+
 let establish_server ?timeout ?stop ~ctx ~mode react =
   let module C = Cohttp in
   let module CU = Cohttp_lwt_unix in
@@ -89,8 +145,7 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         && meth = `GET
         && CCOpt.map String.lowercase @@
         C.Header.get headers "upgrade" = Some "websocket"
-        && List.mem "upgrade"
-        @@ List.map String.lowercase @@ C.Header.get_multi headers "connection"
+        && headers_connection_contain_upgrade headers
       )
     then Lwt.fail_with "Protocol error"
     else Lwt.return_unit >>= fun () ->
