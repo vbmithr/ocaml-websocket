@@ -40,8 +40,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
                    && status = `Switching_protocols
                    && CCOpt.map String.lowercase @@
                    C.Header.get headers "upgrade" = Some "websocket"
-                   && List.mem "upgrade" @@ List.map String.lowercase @@
-                   C.Header.get_multi headers "connection"
+                   && upgrade_present headers
                    && C.Header.get headers "sec-websocket-accept" =
                       Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
                   )
@@ -89,8 +88,7 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         && meth = `GET
         && CCOpt.map String.lowercase @@
         C.Header.get headers "upgrade" = Some "websocket"
-        && List.mem "upgrade"
-        @@ List.map String.lowercase @@ C.Header.get_multi headers "connection"
+        && upgrade_present headers
       )
     then Lwt.fail_with "Protocol error"
     else Lwt.return_unit >>= fun () ->

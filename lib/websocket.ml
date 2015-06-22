@@ -110,6 +110,13 @@ let set_bit v idx b =
 
 let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
+let upgrade_present hs =
+  Cohttp.Header.get_multi hs "connection" |> fun hs ->
+  List.map (CCString.Split.list_cpy ~by:",") hs |> fun hs ->
+  List.flatten hs |> fun hs ->
+  List.map String.(fun h -> h |> lowercase |> trim) hs |>
+  List.mem "upgrade"
+
 module IO(IO: Cohttp.S.IO) = struct
   open IO
 
