@@ -55,7 +55,8 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
     >>= fun () ->
     Lwt.return (ic, oc)
   in
-  connect () >|= fun (ic, oc) ->
+  Nocrypto_entropy_lwt.initialize () >>=
+  connect >|= fun (ic, oc) ->
   let read_frame = make_read_frame ~masked:true (ic, oc) in
   (fun () ->
      try%lwt
@@ -109,6 +110,7 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
   in
   Lwt.async_exception_hook :=
     (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
+  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
     (fun flow ic oc ->
        (try%lwt

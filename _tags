@@ -15,7 +15,7 @@ true: bin_annot, debug, safe_string
                        package(cohttp.lwt), \
                        package(ppx_deriving.std), \
                        package(containers), \
-                       package(nocrypto), \
+                       package(nocrypto.lwt), \
                        package(conduit)
 
 <tests/*.*>: package(lwt), \
@@ -24,5 +24,5 @@ true: bin_annot, debug, safe_string
              package(cohttp.lwt), \
              package(ppx_deriving.std), \
              package(containers), \
-             package(nocrypto), \
+             package(nocrypto.lwt), \
              package(conduit)
