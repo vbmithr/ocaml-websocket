@@ -1,5 +1,22 @@
-0.9.2
+2.1 (2015-07-07)
+* server: Pass in a Cohttp.Request.t instead of Uri.t
+* add Websocket_Lwt.{mk_frame_stream,establish_standard_server}
+* websocket_lwt.cm{a,xa} now only contains module Websocket_lwt
+* Fix upgrade, keepalive issue with Firefox regression
+* Websocket_lwt: Use entropy generator
+
+2.0.0 (2015-06-18)
+* Breaking API change: not Lwt_stream based anymore
+* Switch to conduit (TLS)
+* Functorisation of common code, new Websocket_lwt module
+* More RFC compliance using Autobahn Test Suite
+* Bugfixes
+
+0.9.3 (2015-03-23)
 * Support TLS 0.4.0+ API.
+
+0.9.2 (2015-02-10)
+* Bugfix: Do not verify result of setsockopt
 
 0.9.1 (2015-01-03):
 * safe_string
