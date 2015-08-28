@@ -16,24 +16,25 @@ let set_tcp_nodelay flow =
 let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
   let connect () =
     let module C = Cohttp in
-    let module CU = Cohttp_lwt_unix in
     let nonce = random_string ~base64:true 16 in
     let headers = C.Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
+    let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
+    let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
     let req = C.Request.make ~headers uri in
     Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
     let drain_handshake () =
-      CU.Request.write (fun writer -> Lwt.return_unit) req oc >>= fun () ->
-      CU.Response.read ic >>= (function
+      Request.write (fun writer -> Lwt.return_unit) req oc >>= fun () ->
+      Response.read ic >>= (function
           | `Ok r -> Lwt.return r
           | `Eof -> Lwt.fail End_of_file
           | `Invalid s -> Lwt.fail @@ Failure s) >>= fun response ->
       let status = C.Response.status response in
-      let headers = CU.Response.headers response in
+      let headers = C.Response.headers response in
       if C.Code.(is_error @@ code_of_status status)
       then Lwt.fail @@ HTTP_Error C.Code.(string_of_status status)
       else if not (C.Response.version response = `HTTP_1_1
@@ -58,21 +59,25 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
   Nocrypto_entropy_lwt.initialize () >>=
   connect >|= fun (ic, oc) ->
   let read_frame = make_read_frame ~masked:true (ic, oc) in
+  let buf = Buffer.create 128 in
   (fun () ->
      try%lwt
        read_frame ()
      with exn -> Lwt.fail exn),
   (fun frame ->
      try%lwt
-       send_frame ~masked:true oc frame
+       Buffer.clear buf;
+       write_frame_to_buf ~masked:true buf frame;
+       Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 
 let establish_server ?timeout ?stop ~ctx ~mode react =
   let module C = Cohttp in
-  let module CU = Cohttp_lwt_unix in
+  let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
+  let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
   let id = ref @@ -1 in
   let server_fun id (ic, oc) =
-    (CU.Request.read ic >>= function
+    (Request.read ic >>= function
       | `Ok r -> Lwt.return r
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
@@ -103,8 +108,13 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
         ~status:`Switching_protocols
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
-    CU.Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    let send_frame = send_frame ~masked:false oc in
+    Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
+    let buf = Buffer.create 128 in
+    let send_frame fr =
+      Buffer.clear buf;
+      write_frame_to_buf ~masked:false buf fr;
+      Lwt_io.write oc @@ Buffer.contents buf
+    in
     let read_frame = make_read_frame ~masked:false (ic, oc) in
     react id request read_frame send_frame
   in

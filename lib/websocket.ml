@@ -132,17 +132,8 @@ module IO(IO: Cohttp.S.IO) = struct
       return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
     else failwith "read_int64"
 
-  let write_int16 oc v =
-    let buf = Bytes.create 2 in
-    EndianBytes.BigEndian.set_int16 buf 0 v;
-    write oc (buf |> Bytes.unsafe_to_string)
-
-  let write_int64 oc v =
-    let buf = Bytes.create 8 in
-    EndianBytes.BigEndian.set_int64 buf 0 v;
-    write oc (buf |> Bytes.unsafe_to_string)
-
-  let send_frame ~masked oc fr =
+  let write_frame_to_buf ~masked buf fr =
+    let scratch = Bytes.create 8 in
     let open Frame in
     let mask = random_string 4 in
     let content = Bytes.unsafe_of_string fr.content in
@@ -156,26 +147,31 @@ module IO(IO: Cohttp.S.IO) = struct
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 masked in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
-    write_int16 oc hdr >>= fun () ->
+    EndianBytes.BigEndian.set_int16 scratch 0 hdr;
+    Buffer.add_subbytes buf scratch 0 2;
     (match len with
-     | n when n < 126        -> return ()
-     | n when n < (1 lsl 16) -> write_int16 oc n
-     | n                     -> Int64.of_int n |> write_int64 oc) >>= fun () ->
-    (if masked && len > 0 then begin
-        xor mask content;
-        write oc mask
-      end
-     else return ()) >>= fun () ->
-    write oc @@ Bytes.unsafe_to_string content
+     | n when n < 126 -> ()
+     | n when n < (1 lsl 16) ->
+       EndianBytes.BigEndian.set_int16 scratch 0 n;
+       Buffer.add_subbytes buf scratch 0 2
+     | n ->
+       EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n);
+       Buffer.add_subbytes buf scratch 0 8;
+    );
+    if masked && len > 0 then
+      (xor mask content;
+       Buffer.add_string buf mask
+      );
+    Buffer.add_bytes buf content
 
   (* ATTENTION: raise is used here, might fuck up Lwt! Always catch
          the exception if using Lwt. *)
   let make_read_frame ~masked (ic,oc) =
     let open Frame in
     let close_with_code code =
-      let content = Bytes.create 2 in
-      EndianBytes.BigEndian.set_int16 content 0 code;
-      send_frame ~masked oc @@ Frame.close code >>= fun () ->
+      let buf = Buffer.create 32 in
+      write_frame_to_buf ~masked buf @@ Frame.close code;
+      write oc @@ Buffer.contents buf >>= fun () ->
       raise Exit in
     fun () ->
       (read ic 2 >>= fun hdr ->
