@@ -12,3 +12,6 @@ PKG containers
 PKG ppx_deriving.std
 PKG conduit.lwt-unix
 PKG nocrypto
+PKG core
+PKG async
+PKG cohttp.async

@@ -18,7 +18,16 @@ true: bin_annot, debug, safe_string
                        package(nocrypto.lwt), \
                        package(conduit)
 
-<tests/*.*>: package(lwt), \
+<lib/websocket_async.*>: package(async), \
+                       package(uri), \
+                       package(cohttp.async), \
+                       package(ppx_deriving.std), \
+                       package(containers), \
+                       package(nocrypto), \
+                       package(conduit), \
+                       thread
+
+<tests/{wscat,reynir}.*>: package(lwt), \
              package(lwt.ppx), \
              package(uri), \
              package(cohttp.lwt), \
@@ -26,3 +35,11 @@ true: bin_annot, debug, safe_string
              package(containers), \
              package(nocrypto.lwt), \
              package(conduit)
+
+<tests/wscat_async.*>: package(core), \
+                       package(async), \
+                       thread, \
+                       package(uri), \
+                       package(cohttp.async), \
+                       package(nocrypto.unix), \
+                       package(containers)
