@@ -1,4 +1,4 @@
-version = "2.1"
+version = "2.2"
 description = "Websocket library"
 requires = "ppx_deriving.std cohttp ocplib-endian containers nocrypto"
 archive(byte) = "websocket.cma"
@@ -7,7 +7,7 @@ archive(native) = "websocket.cmxa"
 archive(native, plugin) = "websocket.cmxs"
 exists_if = "websocket.cma"
 package "lwt" (
-  version = "2.1"
+  version = "2.2"
   description = "Websocket library, for Lwt"
   requires = "websocket lwt conduit cohttp.lwt nocrypto.lwt"
   archive(byte) = "websocket_lwt.cma"
@@ -15,4 +15,14 @@ package "lwt" (
   archive(native) = "websocket_lwt.cmxa"
   archive(native, plugin) = "websocket_lwt.cmxs"
   exists_if = "websocket_lwt.cma"
+)
+package "async" (
+  version = "2.2"
+  description = "Websocket library, for Async"
+  requires = "websocket async conduit cohttp.async nocrypto.unix"
+  archive(byte) = "websocket_async.cma"
+  archive(byte, plugin) = "websocket_async.cma"
+  archive(native) = "websocket_async.cmxa"
+  archive(native, plugin) = "websocket_async.cmxs"
+  exists_if = "websocket_async.cma"
 )
