@@ -201,12 +201,15 @@ module IO(IO: Cohttp.S.IO) = struct
          else failwith "read mask"
        else return "") >>= fun mask ->
       (* Create a buffer that will be passed to the push function *)
-      (read ic payload_len >>= fun payload ->
-       if String.length payload = payload_len then return payload
-       else failwith "read payload")
-      >>= fun payload ->
-      let payload = Bytes.unsafe_of_string payload in
-      let () = if frame_masked then xor mask payload in
-      let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-      return frame
+      if payload_len = 0 then
+        return @@ Frame.create ~opcode ~extension ~final ()
+      else
+        (read ic payload_len >>= fun payload ->
+         if String.length payload = payload_len then return payload
+         else failwith "read payload")
+        >>= fun payload ->
+        let payload = Bytes.unsafe_of_string payload in
+        if frame_masked then xor mask payload;
+        let frame = Frame.of_bytes ~opcode ~extension ~final payload in
+        return frame
 end
