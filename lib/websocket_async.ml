@@ -48,10 +48,14 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
   drain_handshake net_to_ws ws_to_net >>= fun () ->
   let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
   let rec loop () =
-    read_frame () >>= fun fr ->
-    Pipe.write ws_to_app fr >>= fun () ->
-    Log.debug log "net -> app";
-    loop ()
+    (try
+      read_frame () >>= fun fr ->
+      Pipe.write ws_to_app fr >>| fun () ->
+      Log.debug log "net -> app";
+    with Failure reason ->
+      Log.debug log "%s" reason;
+      Deferred.unit) >>=
+    loop
   in
   don't_wait_for @@ loop ();
   let buf = Buffer.create 128 in
@@ -103,7 +107,14 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
   server_fun address r w >>= fun () ->
   let read_frame = make_read_frame ~masked:true (r, w) in
-  let rec loop () = read_frame () >>= Pipe.write ws_to_app >>= loop in
+  let rec loop () =
+    (try
+      read_frame () >>=
+      Pipe.write ws_to_app
+    with Failure reason ->
+      Log.debug log "%s" reason;
+      Deferred.unit) >>=
+    loop in
   let buf = Buffer.create 128 in
   Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->

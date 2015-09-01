@@ -205,8 +205,11 @@ module IO(IO: Cohttp.S.IO) = struct
         return @@ Frame.create ~opcode ~extension ~final ()
       else
         (read ic payload_len >>= fun payload ->
-         if String.length payload = payload_len then return payload
-         else failwith "read payload")
+         let recv_len = String.length payload in
+         if recv_len = payload_len then return payload
+         else failwith
+             (Printf.sprintf "read_error: received %d, expected %d"
+                recv_len payload_len))
         >>= fun payload ->
         let payload = Bytes.unsafe_of_string payload in
         if frame_masked then xor mask payload;
