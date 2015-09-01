@@ -13,8 +13,6 @@ exception HTTP_Error of string
 module Request = Cohttp.Request.Make(Cohttp_async_io)
 module Response = Cohttp.Response.Make(Cohttp_async_io)
 
-let _ = Writer.of_pipe
-
 let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
     ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri =
   let drain_handshake r w =
@@ -48,14 +46,15 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
   drain_handshake net_to_ws ws_to_net >>= fun () ->
   let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
   let rec loop () =
-    (try
-      read_frame () >>= fun fr ->
-      Pipe.write ws_to_app fr >>| fun () ->
-      Log.debug log "net -> app";
-    with Failure reason ->
-      Log.debug log "%s" reason;
-      Deferred.unit) >>=
-    loop
+    Monitor.try_with
+      (fun () -> read_frame () >>= fun fr ->
+        Pipe.write ws_to_app fr >>| fun () ->
+        Log.debug log "net -> app"
+      ) >>= function
+    | Ok () -> loop ()
+    | Error exn ->
+        Log.debug log "%s" Exn.(to_string exn);
+        loop ()
   in
   don't_wait_for @@ loop ();
   let buf = Buffer.create 128 in
@@ -67,6 +66,59 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
        Buffer.contents buf
     ) >>= fun () ->
   Deferred.any [Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+
+let client_ez uri =
+  let open Frame in
+  let react app_to_ws fr =
+    match fr.opcode with
+    | Opcode.Ping ->
+        Pipe.write app_to_ws @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
+        None
+
+    | Opcode.Close ->
+      (* Immediately echo and pass this last message to the user *)
+      (if String.length fr.content >= 2 then
+        Pipe.write app_to_ws @@ Frame.create ~opcode:Opcode.Close
+          ~content:(String.sub fr.content 0 2) ()
+       else Pipe.write app_to_ws @@ Frame.close 1000) >>| fun () ->
+      Pipe.close app_to_ws;
+      None
+
+    | Opcode.Pong -> return None
+
+    | Opcode.Text
+    | Opcode.Binary -> return @@ Some fr.content
+
+    | _ ->
+      Pipe.write app_to_ws @@ Frame.close 1002 >>| fun () ->
+      raise Exit
+  in
+  let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
+  let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
+  let port = Option.value_exn ~message:"no port inferred from scheme"
+      Uri_services.(tcp_port_of_uri uri) in
+  let client_read, ws_to_app = Pipe.create () in
+  let app_to_ws, client_write = Pipe.create () in
+  let client_read = Pipe.filter_map' client_read (react client_write) in
+  let app_to_ws', client_write' = Pipe.create () in
+  let ivar = Ivar.create () in
+  don't_wait_for @@ Pipe.transfer app_to_ws' client_write
+    ~f:(fun content -> Frame.create ~opcode:Opcode.Text ~content ());
+  don't_wait_for @@
+  Tcp.(with_connection (to_host_and_port host port)
+         (fun s r w ->
+            Socket.(setopt s Opt.nodelay true);
+            (if scheme = "https" || scheme = "wss"
+             then Conduit_async_ssl.ssl_connect r w
+             else return (r, w)) >>= fun (r, w) ->
+            Log.info log "Connected to %s" @@ Uri.to_string uri;
+            let net_to_ws = r in
+            let ws_to_net = w in
+            Ivar.fill ivar ();
+            client ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri
+         )
+      );
+  Ivar.read ivar >>| fun () -> client_read, client_write'
 
 let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
@@ -108,13 +160,15 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   server_fun address r w >>= fun () ->
   let read_frame = make_read_frame ~masked:true (r, w) in
   let rec loop () =
-    (try
-      read_frame () >>=
-      Pipe.write ws_to_app
-    with Failure reason ->
-      Log.debug log "%s" reason;
-      Deferred.unit) >>=
-    loop in
+    Monitor.try_with
+      (fun () ->
+         read_frame () >>=
+         Pipe.write ws_to_app) >>= function
+    | Ok () -> loop ()
+    | Error exn ->
+        Log.debug log "%s" Exn.(to_string exn);
+        loop ()
+  in
   let buf = Buffer.create 128 in
   Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->
