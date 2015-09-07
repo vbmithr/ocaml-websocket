@@ -167,9 +167,10 @@ module IO(IO: Cohttp.S.IO) = struct
   (* ATTENTION: raise is used here, might fuck up Lwt! Always catch
          the exception if using Lwt. *)
   let make_read_frame ~masked (ic,oc) =
+    let buf = Buffer.create 4096 in
     let open Frame in
     let close_with_code code =
-      let buf = Buffer.create 32 in
+      Buffer.clear buf;
       write_frame_to_buf ~masked buf @@ Frame.close code;
       write oc @@ Buffer.contents buf >>= fun () ->
       raise Exit in
@@ -204,13 +205,15 @@ module IO(IO: Cohttp.S.IO) = struct
       if payload_len = 0 then
         return @@ Frame.create ~opcode ~extension ~final ()
       else
-        (read ic payload_len >>= fun payload ->
-         let recv_len = String.length payload in
-         if recv_len = payload_len then return payload
-         else failwith
-             (Printf.sprintf "read_error: received %d, expected %d"
-                recv_len payload_len))
-        >>= fun payload ->
+        let rec read_all_payload remaining =
+          read ic payload_len >>= fun payload ->
+          let recv_len = String.length payload in
+          Buffer.add_string buf payload;
+          if remaining - recv_len <= 0 then return @@ Buffer.contents buf
+          else read_all_payload (remaining - recv_len)
+        in
+        Buffer.clear buf;
+        read_all_payload payload_len >>= fun payload ->
         let payload = Bytes.unsafe_of_string payload in
         if frame_masked then xor mask payload;
         let frame = Frame.of_bytes ~opcode ~extension ~final payload in
