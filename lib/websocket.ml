@@ -193,7 +193,7 @@ module IO(IO: Cohttp.S.IO) = struct
       else
         let payload_len = CCOpt.get_exn payload_len in
         if extension <> 0 then close_with_code 1002 >>= fun () ->
-          return (`Error "Unsupported extension")
+          return (`Error "unsupported extension")
         else if Opcode.is_ctrl opcode && payload_len > 125
         then close_with_code 1002 >>= fun () ->
           return (`Error "control frame too big")
@@ -207,7 +207,7 @@ module IO(IO: Cohttp.S.IO) = struct
           return @@ `Ok (Frame.create ~opcode ~extension ~final ())
         else
           let rec read_all_payload remaining =
-            read ic payload_len >>= fun payload ->
+            read ic remaining >>= fun payload ->
             let recv_len = String.length payload in
             Buffer.add_string buf payload;
             if remaining - recv_len <= 0 then return @@ Buffer.contents buf

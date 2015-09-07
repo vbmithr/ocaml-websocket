@@ -51,12 +51,13 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
          | `Error msg -> failwith msg
          | `Ok fr ->
              Pipe.write ws_to_app fr >>| fun () ->
-             Log.debug log "net -> app"
+             Log.debug log "net -> app (%d bytes)" String.(length fr.Frame.content)
       ) >>= function
     | Ok () -> loop ()
     | Error exn ->
         Log.debug log "%s" Exn.(to_string exn);
-        loop ()
+        Pipe.close ws_to_app;
+        return ()
   in
   don't_wait_for @@ loop ();
   let buf = Buffer.create 128 in
