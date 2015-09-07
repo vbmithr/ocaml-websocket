@@ -47,9 +47,11 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
   let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
   let rec loop () =
     Monitor.try_with
-      (fun () -> read_frame () >>= fun fr ->
-        Pipe.write ws_to_app fr >>| fun () ->
-        Log.debug log "net -> app"
+      (fun () -> read_frame () >>= function
+         | `Error msg -> failwith msg
+         | `Ok fr ->
+             Pipe.write ws_to_app fr >>| fun () ->
+             Log.debug log "net -> app"
       ) >>= function
     | Ok () -> loop ()
     | Error exn ->
@@ -162,8 +164,9 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let rec loop () =
     Monitor.try_with
       (fun () ->
-         read_frame () >>=
-         Pipe.write ws_to_app) >>= function
+         read_frame () >>= function
+         | `Error msg -> failwith msg
+         | `Ok fr -> Pipe.write ws_to_app fr) >>= function
     | Ok () -> loop ()
     | Error exn ->
         Log.debug log "%s" Exn.(to_string exn);

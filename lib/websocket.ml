@@ -123,14 +123,14 @@ module IO(IO: Cohttp.S.IO) = struct
   let read_uint16 ic =
     read ic 2 >>= fun buf ->
     if String.length buf = 2 then
-      return @@ EndianString.BigEndian.get_uint16 buf 0
-    else failwith "read_uint16"
+      return @@ Some (EndianString.BigEndian.get_uint16 buf 0)
+    else return None
 
   let read_int64 ic =
     read ic 8 >>= fun buf ->
     if String.length buf = 2 then
-      return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
-    else failwith "read_int64"
+      return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
+    else return None
 
   let write_frame_to_buf ~masked buf fr =
     let scratch = Bytes.create 8 in
@@ -164,22 +164,18 @@ module IO(IO: Cohttp.S.IO) = struct
       );
     Buffer.add_bytes buf content
 
-  (* ATTENTION: raise is used here, might fuck up Lwt! Always catch
-         the exception if using Lwt. *)
   let make_read_frame ~masked (ic,oc) =
     let buf = Buffer.create 4096 in
     let open Frame in
     let close_with_code code =
       Buffer.clear buf;
       write_frame_to_buf ~masked buf @@ Frame.close code;
-      write oc @@ Buffer.contents buf >>= fun () ->
-      raise Exit in
+      write oc @@ Buffer.contents buf
+    in
     fun () ->
-      (read ic 2 >>= fun hdr ->
-       if String.length hdr = 2 then return hdr
-       else failwith "read header"
-      ) >>= fun hdr ->
-      if String.length hdr < 2 then raise Exit;
+      read ic 2 >>= fun hdr ->
+      if String.length hdr <> 2 then return (`Error "header len")
+      else
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
       let final = is_bit_set 7 hdr_part1 in
@@ -189,33 +185,38 @@ module IO(IO: Cohttp.S.IO) = struct
       let length = int_value 0 7 hdr_part2 in
       let opcode = Frame.Opcode.of_enum opcode |> CCOpt.get_exn in
       (match length with
-       | i when i < 126 -> return i
+       | i when i < 126 -> return @@ Some i
        | 126            -> read_uint16 ic
        | 127            -> read_int64 ic
-       | _              -> assert false) >>= fun payload_len ->
-      (if extension <> 0 then close_with_code 1002 else return ()) >>= fun () ->
-      (if Opcode.is_ctrl opcode && payload_len > 125 then close_with_code 1002
-       else return ()) >>= fun () ->
-      (if frame_masked
-       then read ic 4 >>= fun mask ->
-         if String.length mask = 4 then return mask
-         else failwith "read mask"
-       else return "") >>= fun mask ->
-      (* Create a buffer that will be passed to the push function *)
-      if payload_len = 0 then
-        return @@ Frame.create ~opcode ~extension ~final ()
+       | _              -> return None) >>= fun payload_len ->
+      if payload_len = None then return (`Error "payload len")
       else
-        let rec read_all_payload remaining =
-          read ic payload_len >>= fun payload ->
-          let recv_len = String.length payload in
-          Buffer.add_string buf payload;
-          if remaining - recv_len <= 0 then return @@ Buffer.contents buf
-          else read_all_payload (remaining - recv_len)
-        in
-        Buffer.clear buf;
-        read_all_payload payload_len >>= fun payload ->
-        let payload = Bytes.unsafe_of_string payload in
-        if frame_masked then xor mask payload;
-        let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-        return frame
+        let payload_len = CCOpt.get_exn payload_len in
+        if extension <> 0 then close_with_code 1002 >>= fun () ->
+          return (`Error "Unsupported extension")
+        else if Opcode.is_ctrl opcode && payload_len > 125
+        then close_with_code 1002 >>= fun () ->
+          return (`Error "control frame too big")
+        else
+          (if frame_masked then read ic 4
+           else return @@ Bytes.(create 4 |> unsafe_to_string)) >>= fun mask ->
+        if String.length mask <> 4 then return (`Error "could not read mask")
+        else
+          (* Create a buffer that will be passed to the push function *)
+        if payload_len = 0 then
+          return @@ `Ok (Frame.create ~opcode ~extension ~final ())
+        else
+          let rec read_all_payload remaining =
+            read ic payload_len >>= fun payload ->
+            let recv_len = String.length payload in
+            Buffer.add_string buf payload;
+            if remaining - recv_len <= 0 then return @@ Buffer.contents buf
+            else read_all_payload (remaining - recv_len)
+          in
+          Buffer.clear buf;
+          read_all_payload payload_len >>= fun payload ->
+          let payload = Bytes.unsafe_of_string payload in
+          if frame_masked then xor mask payload;
+          let frame = Frame.of_bytes ~opcode ~extension ~final payload in
+          return @@ `Ok frame
 end

@@ -62,7 +62,9 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~ctx client uri =
   let buf = Buffer.create 128 in
   (fun () ->
      try%lwt
-       read_frame ()
+       read_frame () >>= function
+       | `Ok frame -> Lwt.return frame
+       | `Error msg -> Lwt.fail_with msg
      with exn -> Lwt.fail exn),
   (fun frame ->
      try%lwt
@@ -116,6 +118,11 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
       Lwt_io.write oc @@ Buffer.contents buf
     in
     let read_frame = make_read_frame ~masked:false (ic, oc) in
+    let read_frame () =
+      read_frame () >>= function
+      | `Ok frame -> Lwt.return frame
+      | `Error msg -> Lwt.fail_with msg
+    in
     react id request read_frame send_frame
   in
   Lwt.async_exception_hook :=
