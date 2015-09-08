@@ -72,19 +72,19 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
 
 let client_ez uri =
   let open Frame in
-  let react app_to_ws fr =
+  let react w fr =
     match fr.opcode with
     | Opcode.Ping ->
-        Pipe.write app_to_ws @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
+        Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
         None
 
     | Opcode.Close ->
       (* Immediately echo and pass this last message to the user *)
       (if String.length fr.content >= 2 then
-        Pipe.write app_to_ws @@ Frame.create ~opcode:Opcode.Close
+        Pipe.write w @@ Frame.create ~opcode:Opcode.Close
           ~content:(String.sub fr.content 0 2) ()
-       else Pipe.write app_to_ws @@ Frame.close 1000) >>| fun () ->
-      Pipe.close app_to_ws;
+       else Pipe.write w @@ Frame.close 1000) >>| fun () ->
+      Pipe.close w;
       None
 
     | Opcode.Pong -> return None
@@ -93,20 +93,21 @@ let client_ez uri =
     | Opcode.Binary -> return @@ Some fr.content
 
     | _ ->
-      Pipe.write app_to_ws @@ Frame.close 1002 >>| fun () ->
+      Pipe.write w @@ Frame.close 1002 >>| fun () ->
       raise Exit
   in
   let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
   let port = Option.value_exn ~message:"no port inferred from scheme"
       Uri_services.(tcp_port_of_uri uri) in
-  let client_read, ws_to_app = Pipe.create () in
-  let app_to_ws, client_write = Pipe.create () in
-  let client_read = Pipe.filter_map' client_read (react client_write) in
-  let app_to_ws', client_write' = Pipe.create () in
   let ivar = Ivar.create () in
-  don't_wait_for @@ Pipe.transfer app_to_ws' client_write
-    ~f:(fun content -> Frame.create ~opcode:Opcode.Text ~content ());
+  let app_to_ws, reactor_write = Pipe.create () in
+  let to_reactor_write, client_write = Pipe.create () in
+  don't_wait_for @@
+  Pipe.transfer to_reactor_write reactor_write
+    ~f:(fun content -> Frame.create ~content ());
+  let client_read, ws_to_app = Pipe.create () in
+  let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
   don't_wait_for @@
   Tcp.(with_connection (to_host_and_port host port)
          (fun s r w ->
@@ -115,13 +116,11 @@ let client_ez uri =
              then Conduit_async_ssl.ssl_connect r w
              else return (r, w)) >>= fun (r, w) ->
             Log.info log "Connected to %s" @@ Uri.to_string uri;
-            let net_to_ws = r in
-            let ws_to_net = w in
             Ivar.fill ivar ();
-            client ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri
+            client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri
          )
       );
-  Ivar.read ivar >>| fun () -> client_read, client_write'
+  Ivar.read ivar >>| fun () -> client_read, client_write
 
 let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
