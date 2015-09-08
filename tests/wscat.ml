@@ -43,31 +43,29 @@ let client uri =
 let server uri =
   let echo_fun id req recv send =
     let open Frame in
-    let react fr =
+    let rec react () =
+      recv () >>= fun fr ->
+      Lwt_log.debug_f ~section "%s" Frame.(show fr) >>= fun () ->
       match fr.opcode with
       | Opcode.Ping ->
-        send @@ Frame.create ~opcode:Opcode.Pong ~content:fr.content ()
-
-      | Opcode.Close ->
-        (* Immediately echo and pass this last message to the user *)
-        (if String.length fr.content >= 2 then
-           send @@ Frame.create ~opcode:Opcode.Close
-             ~content:(String.sub fr.content 0 2) ()
-         else send @@ Frame.close 1000) >>= fun () ->
-        Lwt.fail Exit
-
-      | Opcode.Pong -> Lwt.return_unit
+          send @@
+          Frame.create ~opcode:Opcode.Pong ~content:fr.content () >>= fun () ->
+          (* Immediately echo and pass this last message to the user *)
+          if String.length fr.content >= 2 then
+            send @@ Frame.create ~opcode:Opcode.Close
+              ~content:(String.sub fr.content 0 2) () >>= react
+          else
+            send @@ Frame.close 1000
+      | Opcode.Pong -> react ()
 
       | Opcode.Text
-      | Opcode.Binary -> send fr
-
+      | Opcode.Binary ->
+          send fr >>= react
       | _ ->
-        send @@ Frame.close 1002 >>= fun () ->
-        Lwt.fail Exit
+          send @@ Frame.close 1002
     in
-    let rec react_forever () = recv () >>= react >>= react_forever
-    in
-    react_forever ()
+    Lwt_log.info_f ~section "Connection from client id %d" id >>=
+    react
   in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server ->
@@ -83,7 +81,7 @@ let _ =
 
   let speclist = Arg.align
       [
-        "-s", Arg.Set server, "<bool> Run as server";
+        "-s", Arg.Set server, " Run as server";
         "-v", Arg.String (fun s -> Lwt_log.(add_rule s Info)), "<section> Put <section> to Info level";
         "-vv", Arg.String (fun s -> Lwt_log.(add_rule s Debug)), "<section> Put <section> to Debug level"
       ]

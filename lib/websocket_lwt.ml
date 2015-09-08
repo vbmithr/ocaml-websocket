@@ -132,8 +132,8 @@ let establish_server ?timeout ?stop ~ctx ~mode react =
     (fun flow ic oc ->
        (try%lwt
          set_tcp_nodelay flow;
-          incr id;
-          server_fun !id (ic,oc)
+         incr id;
+         server_fun !id (ic,oc)
         with
         | End_of_file ->
           Lwt_log.info ~section "Client closed connection"

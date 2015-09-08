@@ -65,7 +65,9 @@ val client : ?name:string -> ?extra_headers:Cohttp.Header.t ->
   net_to_ws:Reader.t -> ws_to_net:Writer.t ->
   Uri.t -> unit Deferred.t
 
-val client_ez : Uri.t -> (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.t
+val client_ez :
+  ?wait_for_pong:Time.Span.t -> ?heartbeat:Time.Span.t ->
+  Uri.t -> (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.t
 
 val server : ?name:string ->
   app_to_ws:(Frame.t Pipe.Reader.t) -> ws_to_app:(Frame.t Pipe.Writer.t) ->

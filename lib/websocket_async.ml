@@ -55,46 +55,61 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
       ) >>= function
     | Ok () -> loop ()
     | Error exn ->
+        Log.debug log "Reader is closed: %b" Reader.(is_closed net_to_ws);
         Log.debug log "%s" Exn.(to_string exn);
         Pipe.close ws_to_app;
         return ()
   in
   don't_wait_for @@ loop ();
   let buf = Buffer.create 128 in
-  Pipe.transfer app_to_ws Writer.(pipe ws_to_net)
+  Writer.transfer ws_to_net app_to_ws
     (fun fr ->
        Buffer.clear buf;
        write_frame_to_buf ~masked:true buf fr;
-       Log.debug log "app -> net";
-       Buffer.contents buf
+       Log.debug log "app -> net (%d bytes)" @@ Buffer.length buf;
+       Writer.write ws_to_net @@ Buffer.contents buf;
     ) >>= fun () ->
   Deferred.any [Pipe.closed ws_to_app; Pipe.closed app_to_ws]
 
-let client_ez uri =
+let client_ez
+    ?(wait_for_pong=Time.Span.of_sec 5.)
+    ?(heartbeat=Time.Span.zero) uri =
   let open Frame in
+  let last_pong = ref @@ Time.epoch in
+  let rec keepalive w =
+    let rec watch () =
+      after wait_for_pong >>| fun () ->
+      let time_since_last_pong = Time.abs_diff !last_pong @@ Time.now () in
+      ()
+      (* if Time.Span.(time_since_last_pong > wait_for_pong) *)
+      (* then Pipe.close w *)
+    in
+    after heartbeat >>= fun () ->
+    Pipe.write w @@ Frame.create ~opcode:Opcode.Ping () >>= fun () ->
+    Log.debug log "-> PING";
+    don't_wait_for @@ watch ();
+    keepalive w
+  in
   let react w fr =
+    Log.debug log "<- %s" Frame.(show fr);
     match fr.opcode with
     | Opcode.Ping ->
         Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
         None
-
     | Opcode.Close ->
-      (* Immediately echo and pass this last message to the user *)
-      (if String.length fr.content >= 2 then
-        Pipe.write w @@ Frame.create ~opcode:Opcode.Close
-          ~content:(String.sub fr.content 0 2) ()
-       else Pipe.write w @@ Frame.close 1000) >>| fun () ->
-      Pipe.close w;
-      None
-
-    | Opcode.Pong -> return None
-
-    | Opcode.Text
-    | Opcode.Binary -> return @@ Some fr.content
-
+        (* Immediately echo and pass this last message to the user *)
+        (if String.length fr.content >= 2 then
+           Pipe.write w @@ Frame.create ~opcode:Opcode.Close
+             ~content:(String.sub fr.content 0 2) ()
+         else Pipe.write w @@ Frame.close 1000) >>| fun () ->
+        Pipe.close w;
+        None
+    | Opcode.Pong ->
+        last_pong := Time.now (); return None
+    | Opcode.Text | Opcode.Binary ->
+        return @@ Some fr.content
     | _ ->
-      Pipe.write w @@ Frame.close 1002 >>| fun () ->
-      raise Exit
+        Pipe.write w @@ Frame.close 1002 >>| fun () -> Pipe.close w; None
   in
   let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
@@ -120,7 +135,9 @@ let client_ez uri =
             client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri
          )
       );
-  Ivar.read ivar >>| fun () -> client_read, client_write
+  Ivar.read ivar >>| fun () ->
+  if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
+  client_read, client_write
 
 let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =

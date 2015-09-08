@@ -16,7 +16,7 @@ let client uri =
       | `Ok s -> Pipe.write w s >>= loop
     in loop ()
   in
-  client_ez uri >>= fun (r, w) ->
+  client_ez ~heartbeat:Time.Span.(of_sec 5.) uri >>= fun (r, w) ->
   don't_wait_for @@ read_line_and_write_to_pipe w;
   Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
 
