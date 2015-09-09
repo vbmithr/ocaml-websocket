@@ -55,7 +55,6 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
       ) >>= function
     | Ok () -> loop ()
     | Error exn ->
-        Log.debug log "Reader is closed: %b" Reader.(is_closed net_to_ws);
         Log.debug log "%s" Exn.(to_string exn);
         Pipe.close ws_to_app;
         return ()
@@ -66,8 +65,9 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
     (fun fr ->
        Buffer.clear buf;
        write_frame_to_buf ~masked:true buf fr;
-       Log.debug log "app -> net (%d bytes)" @@ Buffer.length buf;
-       Writer.write ws_to_net @@ Buffer.contents buf;
+       let contents = Buffer.contents buf in
+       Log.debug log "app -> net: %S" contents;
+       Writer.write ws_to_net contents
     ) >>= fun () ->
   Deferred.any [Pipe.closed ws_to_app; Pipe.closed app_to_ws]
 
@@ -80,12 +80,12 @@ let client_ez
     let rec watch () =
       after wait_for_pong >>| fun () ->
       let time_since_last_pong = Time.abs_diff !last_pong @@ Time.now () in
-      ()
-      (* if Time.Span.(time_since_last_pong > wait_for_pong) *)
-      (* then Pipe.close w *)
+      if Time.Span.(time_since_last_pong > wait_for_pong)
+      then Pipe.close w
     in
     after heartbeat >>= fun () ->
-    Pipe.write w @@ Frame.create ~opcode:Opcode.Ping () >>= fun () ->
+    Pipe.write w @@ Frame.create
+      ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
     Log.debug log "-> PING";
     don't_wait_for @@ watch ();
     keepalive w
