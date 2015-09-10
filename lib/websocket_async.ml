@@ -45,7 +45,9 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
   Nocrypto_entropy_unix.initialize (); (* FIXME: generate entropy *)
   drain_handshake net_to_ws ws_to_net >>= fun () ->
   let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
-  let rec loop () =
+  let buf = Buffer.create 128 in
+  (* this terminates -> net_to_ws && ws_to_net is closed *)
+  let rec forward_frames_to_app () =
     Monitor.try_with
       (fun () -> read_frame () >>= function
          | `Error msg -> failwith msg
@@ -53,23 +55,27 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
              Pipe.write ws_to_app fr >>| fun () ->
              Log.debug log "net -> app (%d bytes)" String.(length fr.Frame.content)
       ) >>= function
-    | Ok () -> loop ()
+    | Ok () -> forward_frames_to_app ()
     | Error exn ->
         Log.debug log "%s" Exn.(to_string exn);
-        Pipe.close ws_to_app;
-        return ()
+        Deferred.unit
   in
-  don't_wait_for @@ loop ();
-  let buf = Buffer.create 128 in
-  Writer.transfer ws_to_net app_to_ws
-    (fun fr ->
-       Buffer.clear buf;
-       write_frame_to_buf ~masked:true buf fr;
-       let contents = Buffer.contents buf in
-       Log.debug log "app -> net: %S" contents;
-       Writer.write ws_to_net contents
-    ) >>= fun () ->
-  Deferred.any [Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+  (* ws_to_net closed <-> app_to_ws closed *)
+  let forward_frames_to_net () =
+    Writer.transfer ws_to_net app_to_ws
+      (fun fr ->
+         Buffer.clear buf;
+         write_frame_to_buf ~masked:true buf fr;
+         let contents = Buffer.contents buf in
+         Log.debug log "app -> net: %S" contents;
+         Writer.write ws_to_net contents
+      )
+  in
+  Deferred.any [
+    forward_frames_to_app ();
+    forward_frames_to_net ();
+    Pipe.closed app_to_ws; (* The user wants to close *)
+  ]
 
 let client_ez
     ?(wait_for_pong=Time.Span.of_sec 5.)
