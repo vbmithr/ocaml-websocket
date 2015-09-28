@@ -38,6 +38,7 @@ true: bin_annot, debug, safe_string
 
 <tests/wscat_async.*>: package(core), \
                        package(async), \
+                       package(ppx_deriving.std), \
                        thread, \
                        package(uri), \
                        package(cohttp.async), \
