@@ -79,7 +79,7 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
 
 let client_ez
     ?(wait_for_pong=Time.Span.of_sec 5.)
-    ?(heartbeat=Time.Span.zero) uri =
+    ?(heartbeat=Time.Span.zero) uri s r w =
   let open Frame in
   let last_pong = ref @@ Time.epoch in
   let rec keepalive w =
@@ -117,10 +117,6 @@ let client_ez
     | _ ->
         Pipe.write w @@ Frame.close 1002 >>| fun () -> Pipe.close w; None
   in
-  let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
-  let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
-  let port = Option.value_exn ~message:"no port inferred from scheme"
-      Uri_services.(tcp_port_of_uri uri) in
   let ivar = Ivar.create () in
   let app_to_ws, reactor_write = Pipe.create () in
   let to_reactor_write, client_write = Pipe.create () in
@@ -129,18 +125,8 @@ let client_ez
     ~f:(fun content -> Frame.create ~content ());
   let client_read, ws_to_app = Pipe.create () in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
-  don't_wait_for @@
-  Tcp.(with_connection (to_host_and_port host port)
-         (fun s r w ->
-            Socket.(setopt s Opt.nodelay true);
-            (if scheme = "https" || scheme = "wss"
-             then Conduit_async_ssl.ssl_connect r w
-             else return (r, w)) >>= fun (r, w) ->
-            Log.info log "Connected to %s" @@ Uri.to_string uri;
-            Ivar.fill ivar ();
-            client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri
-         )
-      );
+  Ivar.fill ivar ();
+  don't_wait_for @@ client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
   Ivar.read ivar >>| fun () ->
   if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
   client_read, client_write

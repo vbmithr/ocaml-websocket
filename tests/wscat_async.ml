@@ -6,6 +6,10 @@ open Websocket_async
 let log = Log.create ~level:`Error ~on_error:`Raise ~output:Log.Output.([stderr ()])
 
 let client uri =
+  let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
+  let port = Option.value_exn ~message:"no port inferred from scheme"
+      Uri_services.(tcp_port_of_uri uri) in
+  let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
   let read_line_and_write_to_pipe w =
     let rec loop () =
       Reader.(read_line Lazy.(force stdin)) >>= function
@@ -16,9 +20,17 @@ let client uri =
       | `Ok s -> Pipe.write w s >>= loop
     in loop ()
   in
-  client_ez ~heartbeat:Time.Span.(of_sec 5.) uri >>= fun (r, w) ->
-  don't_wait_for @@ read_line_and_write_to_pipe w;
-  Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
+  Tcp.(with_connection (to_host_and_port host port)
+         (fun s r w ->
+            Socket.(setopt s Opt.nodelay true);
+            (if scheme = "https" || scheme = "wss"
+             then Conduit_async_ssl.ssl_connect r w
+             else return (r, w)) >>= fun (r, w) ->
+            client_ez ~heartbeat:Time.Span.(of_sec 5.) uri s r w >>= fun (r, w) ->
+            don't_wait_for @@ read_line_and_write_to_pipe w;
+            Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
+         )
+      )
 
 (* let server uri = *)
 (*   let echo_fun id req recv send = *)
