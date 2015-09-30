@@ -52,26 +52,43 @@ module Frame : sig
            } [@@deriving show]
   (** The type representing websocket frames *)
 
-  val create : ?opcode:Opcode.t -> ?extension:int -> ?final:bool ->
-    ?content:string -> unit -> t
+  val create :
+    ?opcode:Opcode.t ->
+    ?extension:int ->
+    ?final:bool ->
+    ?content:string ->
+    unit ->
+    t
 
   val close : int -> t
 end
 
 val log : Log.t
 
-val client : ?name:string -> ?extra_headers:Cohttp.Header.t ->
-  app_to_ws:(Frame.t Pipe.Reader.t) -> ws_to_app:(Frame.t Pipe.Writer.t) ->
-  net_to_ws:Reader.t -> ws_to_net:Writer.t ->
-  Uri.t -> unit Deferred.t
+val client :
+  ?name:string ->
+  ?extra_headers:Cohttp.Header.t ->
+  app_to_ws:(Frame.t Pipe.Reader.t) ->
+  ws_to_app:(Frame.t Pipe.Writer.t) ->
+  net_to_ws:Reader.t ->
+  ws_to_net:Writer.t ->
+  Uri.t ->
+  (unit, string) Result.t Deferred.t
 
 val client_ez :
   ?wait_for_pong:Time.Span.t ->
   ?heartbeat:Time.Span.t ->
-  Uri.t -> ('a, 'b) Socket.t -> Reader.t -> Writer.t ->
+  Uri.t ->
+  ('a, 'b) Socket.t ->
+  Reader.t ->
+  Writer.t ->
   (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.t
 
-val server : ?name:string ->
-  app_to_ws:(Frame.t Pipe.Reader.t) -> ws_to_app:(Frame.t Pipe.Writer.t) ->
-  net_to_ws:(string Pipe.Reader.t) -> ws_to_net:(string Pipe.Writer.t) ->
-  Socket.Address.t -> unit Deferred.t
+val server :
+  ?name:string ->
+  app_to_ws:(Frame.t Pipe.Reader.t) ->
+  ws_to_app:(Frame.t Pipe.Writer.t) ->
+  net_to_ws:(string Pipe.Reader.t) ->
+  ws_to_net:(string Pipe.Writer.t) ->
+  Socket.Address.t ->
+  unit Deferred.t

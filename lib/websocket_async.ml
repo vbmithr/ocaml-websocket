@@ -13,7 +13,9 @@ exception HTTP_Error of string
 module Request = Cohttp.Request.Make(Cohttp_async_io)
 module Response = Cohttp.Response.Make(Cohttp_async_io)
 
-let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
+let client
+    ?(name="")
+    ?(extra_headers = Cohttp.Header.init ())
     ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri =
   let drain_handshake r w =
     let nonce = random_string ~base64:true 16 in
@@ -24,58 +26,62 @@ let client ?(name="") ?(extra_headers = Cohttp.Header.init ())
          "Sec-WebSocket-Version" , "13"] in
     let req = Cohttp.Request.make ~headers uri in
     Request.write (fun writer -> Deferred.unit) req w >>= fun () ->
-    Response.read r >>= (function
-        | `Ok r -> return r
-        | `Eof -> raise End_of_file
-        | `Invalid s -> failwith s) >>| fun response ->
-    let status = Cohttp.Response.status response in
-    let headers = Cohttp.Response.headers response in
-    if Cohttp.Code.(is_error @@ code_of_status status)
-    then raise (HTTP_Error Cohttp.Code.(string_of_status status))
-    else if not (Cohttp.Response.version response = `HTTP_1_1
-                 && status = `Switching_protocols
-                 && CCOpt.map String.lowercase @@
-                 Cohttp.Header.get headers "upgrade" = Some "websocket"
-                 && upgrade_present headers
-                 && Cohttp.Header.get headers "sec-websocket-accept" =
-                    Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
-                )
-    then failwith "Protocol error"
+    Response.read r >>| function
+    | `Eof -> Result.fail "EOF"
+    | `Invalid s -> Result.fail s
+    | `Ok response ->
+        let status = Cohttp.Response.status response in
+        let headers = Cohttp.Response.headers response in
+        if Cohttp.Code.(is_error @@ code_of_status status)
+        then Result.failf "HTTP_Error %s" Cohttp.Code.(string_of_status status)
+        else if not (Cohttp.Response.version response = `HTTP_1_1
+                     && status = `Switching_protocols
+                     && CCOpt.map String.lowercase @@
+                     Cohttp.Header.get headers "upgrade" = Some "websocket"
+                     && upgrade_present headers
+                     && Cohttp.Header.get headers "sec-websocket-accept" =
+                        Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
+                    )
+        then Result.fail "Protocol error"
+        else Result.return ()
   in
   Nocrypto_entropy_unix.initialize (); (* FIXME: generate entropy *)
-  drain_handshake net_to_ws ws_to_net >>= fun () ->
-  let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
-  let buf = Buffer.create 128 in
-  (* this terminates -> net_to_ws && ws_to_net is closed *)
-  let rec forward_frames_to_app () =
-    Monitor.try_with
-      (fun () -> read_frame () >>= function
-         | `Error msg -> failwith msg
-         | `Ok fr ->
-             Pipe.write ws_to_app fr >>| fun () ->
-             Log.debug log "net -> app (%d bytes)" String.(length fr.Frame.content)
-      ) >>= function
-    | Ok () -> forward_frames_to_app ()
-    | Error exn ->
-        Log.debug log "%s" Exn.(to_string exn);
-        Deferred.unit
-  in
-  (* ws_to_net closed <-> app_to_ws closed *)
-  let forward_frames_to_net () =
-    Writer.transfer ws_to_net app_to_ws
-      (fun fr ->
-         Buffer.clear buf;
-         write_frame_to_buf ~masked:true buf fr;
-         let contents = Buffer.contents buf in
-         Log.debug log "app -> net: %S" contents;
-         Writer.write ws_to_net contents
-      )
-  in
-  Deferred.any [
-    forward_frames_to_app ();
-    forward_frames_to_net ();
-    Pipe.closed app_to_ws; (* The user wants to close *)
-  ]
+  try_with (fun () -> drain_handshake net_to_ws ws_to_net) >>= function
+  | Error exn -> return @@ Result.failf "%s" Exn.(to_string exn)
+  | Ok (Error msg) -> return @@ Result.fail msg
+  | Ok (Ok ()) ->
+      let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
+      let buf = Buffer.create 128 in
+      (* this terminates -> net_to_ws && ws_to_net is closed *)
+      let rec forward_frames_to_app () =
+        Monitor.try_with
+          (fun () -> read_frame () >>= function
+             | `Error msg -> failwith msg
+             | `Ok fr ->
+                 Pipe.write ws_to_app fr >>| fun () ->
+                 Log.debug log "net -> app (%d bytes)" String.(length fr.Frame.content)
+          ) >>= function
+        | Ok () -> forward_frames_to_app ()
+        | Error exn ->
+            Log.debug log "%s" Exn.(to_string exn);
+            Deferred.unit
+      in
+      (* ws_to_net closed <-> app_to_ws closed *)
+      let forward_frames_to_net () =
+        Writer.transfer ws_to_net app_to_ws
+          (fun fr ->
+             Buffer.clear buf;
+             write_frame_to_buf ~masked:true buf fr;
+             let contents = Buffer.contents buf in
+             Log.debug log "app -> net: %S" contents;
+             Writer.write ws_to_net contents
+          )
+      in
+      Deferred.any [
+        forward_frames_to_app ();
+        forward_frames_to_net ();
+        Pipe.closed app_to_ws; (* The user wants to close *)
+      ] >>| Result.return
 
 let client_ez
     ?(wait_for_pong=Time.Span.of_sec 5.)
@@ -126,7 +132,7 @@ let client_ez
   let client_read, ws_to_app = Pipe.create () in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
   Ivar.fill ivar ();
-  don't_wait_for @@ client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  ignore @@ client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
   Ivar.read ivar >>| fun () ->
   if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
   client_read, client_write
