@@ -45,7 +45,7 @@ let server uri =
     let open Frame in
     let rec react () =
       recv () >>= fun fr ->
-      Lwt_log.debug_f ~section "%s" Frame.(show fr) >>= fun () ->
+      Lwt_log.debug_f ~section "Client %d: %s" id Frame.(show fr) >>= fun () ->
       match fr.opcode with
       | Opcode.Ping ->
           send @@
@@ -64,12 +64,16 @@ let server uri =
       | _ ->
           send @@ Frame.close 1002
     in
-    Lwt_log.info_f ~section "Connection from client id %d" id >>=
-    react
+    Lwt_log.info_f ~section "Connection from client id %d" id >>= fun () ->
+    try%lwt react () with exn ->
+      Lwt_log.error_f ~section ~exn "Client %d error" id >>= fun () ->
+      Lwt.fail exn
   in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  establish_server ~ctx:default_ctx ~mode:server echo_fun)
+  Conduit_lwt_unix.(
+    endp_to_server ~ctx:default_ctx endp >>= fun server ->
+    establish_server ~ctx:default_ctx ~mode:server echo_fun
+  )
 
 let main is_server uri =
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
