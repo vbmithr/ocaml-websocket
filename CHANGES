@@ -1,3 +1,7 @@
+2.2 (2015-12-23)
+* Async backend
+* Code refactoring, bugfixes and upgrade to new version of libraries
+
 2.1 (2015-07-07)
 * server: Pass in a Cohttp.Request.t instead of Uri.t
 * add Websocket_Lwt.{mk_frame_stream,establish_standard_server}
