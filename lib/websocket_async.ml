@@ -188,10 +188,11 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
         loop ()
   in
   let buf = Buffer.create 128 in
-  Pipe.transfer app_to_ws Writer.(pipe w)
+  let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->
        Buffer.clear buf;
        write_frame_to_buf ~masked:true buf fr;
        Buffer.contents buf
-    ) >>= fun () ->
-  Deferred.any [loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+    )
+  in
+  Deferred.any [transfer_end; loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
