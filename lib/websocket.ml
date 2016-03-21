@@ -128,7 +128,7 @@ module IO(IO: Cohttp.S.IO) = struct
 
   let read_int64 ic =
     read ic 8 >>= fun buf ->
-    if String.length buf = 2 then
+    if String.length buf = 8 then
       return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
     else return None
 
