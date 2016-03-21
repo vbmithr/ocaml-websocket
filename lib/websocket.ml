@@ -188,8 +188,10 @@ module IO(IO: Cohttp.S.IO) = struct
        | i when i < 126 -> return @@ Some i
        | 126            -> read_uint16 ic
        | 127            -> read_int64 ic
-       | _              -> return None) >>= fun payload_len ->
-      if payload_len = None then return (`Error "payload len")
+       | n              -> return None
+      ) >>= fun payload_len ->
+      if payload_len = None then
+        return (`Error ("payload len = " ^ string_of_int length))
       else
         let payload_len = CCOpt.get_exn payload_len in
         if extension <> 0 then close_with_code 1002 >>= fun () ->

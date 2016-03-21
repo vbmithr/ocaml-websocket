@@ -54,7 +54,7 @@ let client
       let buf = Buffer.create 128 in
       (* this terminates -> net_to_ws && ws_to_net is closed *)
       let rec forward_frames_to_app () =
-        Monitor.try_with
+        try_with
           (fun () -> read_frame () >>= function
              | `Error msg -> failwith msg
              | `Ok fr ->
@@ -177,7 +177,7 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   server_fun address r w >>= fun () ->
   let read_frame = make_read_frame ~masked:true (r, w) in
   let rec loop () =
-    Monitor.try_with
+    try_with
       (fun () ->
          read_frame () >>= function
          | `Error msg -> failwith msg
