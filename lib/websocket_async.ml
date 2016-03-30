@@ -1,13 +1,14 @@
 open Core.Std
 open Async.Std
+open Cohttp
 
 include Websocket
 
 module Async_IO = IO(Cohttp_async_io)
 open Async_IO
 
-module Request = Cohttp.Request.Make(Cohttp_async_io)
-module Response = Cohttp.Response.Make(Cohttp_async_io)
+module Request_async = Request.Make(Cohttp_async_io)
+module Response_async = Response.Make(Cohttp_async_io)
 
 let debug log =
   Printf.ksprintf
@@ -24,7 +25,7 @@ let error log =
 let client
     ?log
     ?(name="")
-    ?(extra_headers = Cohttp.Header.init ())
+    ?(extra_headers = Header.init ())
     ~g
     ~app_to_ws
     ~ws_to_app
@@ -33,25 +34,25 @@ let client
     uri =
   let drain_handshake r w =
     let nonce = random_string ~g ~base64:true 16 in
-    let headers = Cohttp.Header.add_list extra_headers
+    let headers = Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
-    let req = Cohttp.Request.make ~headers uri in
-    Request.write (fun writer -> Deferred.unit) req w >>= fun () ->
-    Response.read r >>| function
+    let req = Request.make ~headers uri in
+    Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
+    Response_async.read r >>| function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-        let status = Cohttp.Response.status response in
-        let headers = Cohttp.Response.headers response in
-        if Cohttp.Code.(is_error @@ code_of_status status) then failwith @@ "HTTP Error " ^ Cohttp.Code.(string_of_status status)
-        else if Cohttp.Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
-        else if status <> `Switching_protocols then failwith @@ "status error " ^ Cohttp.Code.(string_of_status status)
-        else if CCOpt.map String.lowercase Cohttp.Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
+        let status = Response.status response in
+        let headers = Response.headers response in
+        if Code.(is_error @@ code_of_status status) then failwith @@ "HTTP Error " ^ Code.(string_of_status status)
+        else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
+        else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
+        else if CCOpt.map String.lowercase Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
         else if not @@ upgrade_present headers then failwith "update not present"
-        else if Cohttp.Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
+        else if Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
         else ()
   in
   let run () =
@@ -170,7 +171,7 @@ let client_ez
 
 let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
-    (Request.read r >>| function
+    (Request_async.read r >>| function
       | `Ok r -> r
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
@@ -179,28 +180,28 @@ let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
       | `Invalid reason ->
         info log "Invalid input from remote endpoint: %s" reason;
         failwith reason) >>= fun request ->
-    let meth    = Cohttp.Request.meth request in
-    let version = Cohttp.Request.version request in
-    let headers = Cohttp.Request.headers request in
+    let meth    = Request.meth request in
+    let version = Request.version request in
+    let headers = Request.headers request in
     if not (
         version = `HTTP_1_1
         && meth = `GET
         && CCOpt.map String.lowercase @@
-        Cohttp.Header.get headers "upgrade" = Some "websocket"
+        Header.get headers "upgrade" = Some "websocket"
         && upgrade_present headers
       )
     then failwith "Protocol error";
-    let key = CCOpt.get_exn @@ Cohttp.Header.get headers "sec-websocket-key" in
+    let key = CCOpt.get_exn @@ Header.get headers "sec-websocket-key" in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
-    let response_headers = Cohttp.Header.of_list
+    let response_headers = Header.of_list
         ["Upgrade", "websocket";
          "Connection", "Upgrade";
          "Sec-WebSocket-Accept", hash] in
-    let response = Cohttp.Response.make
+    let response = Response.make
         ~status:`Switching_protocols
-        ~encoding:Cohttp.Transfer.Unknown
+        ~encoding:Transfer.Unknown
         ~headers:response_headers () in
-    Response.write (fun writer -> Deferred.unit) response w
+    Response_async.write (fun writer -> Deferred.unit) response w
   in
   Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (w, _) ->
   Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
