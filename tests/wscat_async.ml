@@ -1,9 +1,8 @@
 open Core.Std
 open Async.Std
+open Log.Global
 
 open Websocket_async
-
-let log = Log.create ~level:`Error ~on_error:`Raise ~output:Log.Output.([stderr ()])
 
 let client uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
@@ -14,23 +13,23 @@ let client uri =
     let rec loop () =
       Reader.(read_line Lazy.(force stdin)) >>= function
       | `Eof ->
-          Log.debug log "Got EOF. Closing pipe.";
+          debug "Got EOF. Closing pipe.";
           Pipe.close w;
           Shutdown.exit 0
       | `Ok s -> Pipe.write w s >>= loop
     in loop ()
   in
-  Tcp.(with_connection (to_host_and_port host port)
-         (fun s r w ->
-            Socket.(setopt s Opt.nodelay true);
-            (if scheme = "https" || scheme = "wss"
-             then Conduit_async_ssl.ssl_connect r w
-             else return (r, w)) >>= fun (r, w) ->
-            client_ez ~heartbeat:Time.Span.(of_sec 5.) uri s r w >>= fun (r, w) ->
-            don't_wait_for @@ read_line_and_write_to_pipe w;
-            Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
-         )
-      )
+  let tcp_fun s r w =
+    Socket.(setopt s Opt.nodelay true);
+    (if scheme = "https" || scheme = "wss"
+     then Conduit_async_ssl.ssl_connect r w
+     else return (r, w)) >>= fun (r, w) ->
+    client_ez ~log:Lazy.(force log)
+      ~heartbeat:Time.Span.(of_sec 5.) uri s r w >>= fun (r, w) ->
+    don't_wait_for @@ read_line_and_write_to_pipe w;
+    Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
+  in
+  Tcp.(with_connection (to_host_and_port host port) tcp_fun)
 
 (* let server uri = *)
 (*   let echo_fun id req recv send = *)
@@ -65,22 +64,23 @@ let client uri =
 (*   Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server -> *)
 (*   establish_server ~ctx:default_ctx ~mode:server echo_fun) *)
 
-let () =
-  let uri = ref "" in
-  let speclist = Arg.(align
-      [
-        "-v", Unit (fun () ->
-            Log.set_level log `Info;
-            Log.set_level Websocket_async.log `Info
-          ), "Set log level to `Info";
-        "-vv", Unit (fun () ->
-            Log.set_level log `Debug;
-            Log.set_level Websocket_async.log `Debug
-          ), "Set log level to `Debug";
-      ])
+let command =
+  let spec =
+    let open Command.Spec in
+    empty
+    +> flag "-loglevel" (optional int) ~doc:"1-3 loglevel"
+    +> anon ("url" %: string)
   in
-  let anon_fun s = uri := s in
-  let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
-  Arg.parse speclist anon_fun usage_msg;
-  don't_wait_for @@ client @@ Uri.of_string !uri;
-  never_returns @@ Scheduler.go ()
+  let set_loglevel = function
+    | 2 -> set_level `Info
+    | 3 -> set_level `Debug
+    | _ -> ()
+  in
+  let run loglevel url =
+    Option.iter loglevel ~f:set_loglevel;
+    don't_wait_for @@ client @@ Uri.of_string url;
+    never_returns @@ Scheduler.go ()
+  in
+  Command.basic ~summary:"telnet-like interface to Websockets" spec run
+
+let () = Command.run command

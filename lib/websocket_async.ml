@@ -6,17 +6,33 @@ include Websocket
 module Async_IO = IO(Cohttp_async_io)
 open Async_IO
 
-let log = Log.create ~level:`Error ~on_error:`Raise ~output:Log.Output.([stderr ()])
-
 exception HTTP_Error of string
 
 module Request = Cohttp.Request.Make(Cohttp_async_io)
 module Response = Cohttp.Response.Make(Cohttp_async_io)
 
+let debug log =
+  Printf.ksprintf
+    (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg))
+
+let info log =
+  Printf.ksprintf
+    (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg))
+
+let error log =
+  Printf.ksprintf
+    (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg))
+
+
 let client
+    ?log
     ?(name="")
     ?(extra_headers = Cohttp.Header.init ())
-    ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri =
+    ~app_to_ws
+    ~ws_to_app
+    ~net_to_ws
+    ~ws_to_net
+    uri =
   let drain_handshake r w =
     let nonce = random_string ~base64:true 16 in
     let headers = Cohttp.Header.add_list extra_headers
@@ -59,11 +75,11 @@ let client
              | `Error msg -> failwith msg
              | `Ok fr ->
                  Pipe.write ws_to_app fr >>| fun () ->
-                 Log.debug log "net -> app (%d bytes)" String.(length fr.Frame.content)
+                 debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
           ) >>= function
         | Ok () -> forward_frames_to_app ()
         | Error exn ->
-            Log.debug log "%s" Exn.(to_string exn);
+            debug log "%s" Exn.(to_string exn);
             Deferred.unit
       in
       (* ws_to_net closed <-> app_to_ws closed *)
@@ -73,7 +89,7 @@ let client
              Buffer.clear buf;
              write_frame_to_buf ~masked:true buf fr;
              let contents = Buffer.contents buf in
-             Log.debug log "app -> net: %S" contents;
+             debug log "app -> net: %S" contents;
              Writer.write ws_to_net contents
           )
       in
@@ -84,6 +100,7 @@ let client
       ] >>| Result.return
 
 let client_ez
+    ?log
     ?(wait_for_pong=Time.Span.of_sec 5.)
     ?(heartbeat=Time.Span.zero) uri s r w =
   let open Frame in
@@ -98,12 +115,12 @@ let client_ez
     after heartbeat >>= fun () ->
     Pipe.write w @@ Frame.create
       ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
-    Log.debug log "-> PING";
+    debug log "-> PING";
     don't_wait_for @@ watch ();
     keepalive w
   in
   let react w fr =
-    Log.debug log "<- %s" Frame.(show fr);
+    debug log "<- %s" Frame.(show fr);
     match fr.opcode with
     | Opcode.Ping ->
         Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
@@ -137,16 +154,16 @@ let client_ez
   if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
   client_read, client_write
 
-let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
+let server ?log ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
     (Request.read r >>| function
       | `Ok r -> r
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
-        Log.info log "Remote endpoint closed connection";
+        info log "Remote endpoint closed connection";
         raise End_of_file
       | `Invalid reason ->
-        Log.info log "Invalid input from remote endpoint: %s" reason;
+        info log "Invalid input from remote endpoint: %s" reason;
         failwith reason) >>= fun request ->
     let meth    = Cohttp.Request.meth request in
     let version = Cohttp.Request.version request in
@@ -184,8 +201,8 @@ let server ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
          | `Ok fr -> Pipe.write ws_to_app fr) >>= function
     | Ok () -> loop ()
     | Error exn ->
-        Log.debug log "%s" Exn.(to_string exn);
-        loop ()
+      debug log "%s" Exn.(to_string exn);
+      loop ()
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
