@@ -53,7 +53,6 @@ let client
         else if CCOpt.map String.lowercase Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
         else if not @@ upgrade_present headers then failwith "update not present"
         else if Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
-        else ()
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
