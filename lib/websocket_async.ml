@@ -6,8 +6,6 @@ include Websocket
 module Async_IO = IO(Cohttp_async_io)
 open Async_IO
 
-exception HTTP_Error of string
-
 module Request = Cohttp.Request.Make(Cohttp_async_io)
 module Response = Cohttp.Response.Make(Cohttp_async_io)
 
@@ -48,17 +46,12 @@ let client
     | `Ok response ->
         let status = Cohttp.Response.status response in
         let headers = Cohttp.Response.headers response in
-        if Cohttp.Code.(is_error @@ code_of_status status)
-        then raise @@ HTTP_Error Cohttp.Code.(string_of_status status)
-        else if not (Cohttp.Response.version response = `HTTP_1_1
-                     && status = `Switching_protocols
-                     && CCOpt.map String.lowercase @@
-                     Cohttp.Header.get headers "upgrade" = Some "websocket"
-                     && upgrade_present headers
-                     && Cohttp.Header.get headers "sec-websocket-accept" =
-                        Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
-                    )
-        then failwith "Protocol error"
+        if Cohttp.Code.(is_error @@ code_of_status status) then failwith @@ "HTTP Error " ^ Cohttp.Code.(string_of_status status)
+        else if Cohttp.Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
+        else if status <> `Switching_protocols then failwith @@ "status error " ^ Cohttp.Code.(string_of_status status)
+        else if CCOpt.map String.lowercase Cohttp.Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
+        else if not @@ upgrade_present headers then failwith "update not present"
+        else if Cohttp.Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
         else ()
   in
   let run () =
@@ -97,7 +90,7 @@ let client
     ]
   in
   don't_wait_for begin
-    try_with run >>| function
+    try_with ~name:"client" run >>| function
     | Ok () -> ()
     | Error exn ->
       error log "%s" Exn.(to_string exn);
@@ -162,9 +155,9 @@ let client_ez
         Deferred.never ()
     ]
   in
-  client ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  client ?log ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
   don't_wait_for begin
-    try_with run >>| function
+    try_with ~name:"client_ez" run >>| function
     | Ok () -> ()
     | Error exn ->
       error log "%s" Exn.(to_string exn);
@@ -213,12 +206,13 @@ let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
   Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
   server_fun address r w >>= fun () ->
   let read_frame = make_read_frame ~masked:true (r, w) in
+  let run () =
+    read_frame ~g () >>= function
+    | `Error msg -> failwith msg
+    | `Ok fr -> Pipe.write ws_to_app fr
+  in
   let rec loop () =
-    try_with
-      (fun () ->
-         read_frame ~g () >>= function
-         | `Error msg -> failwith msg
-         | `Ok fr -> Pipe.write ws_to_app fr) >>= function
+    try_with ~name:"server" run >>= function
     | Ok () -> loop ()
     | Error exn ->
       debug log "%s" Exn.(to_string exn);

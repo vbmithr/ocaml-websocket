@@ -29,8 +29,6 @@ open Async.Std
 
 module Frame : module type of Websocket.Frame
 
-exception HTTP_Error of string
-
 val client :
   ?log:Log.t ->
   ?name:string ->
