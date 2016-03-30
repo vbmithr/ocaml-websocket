@@ -18,6 +18,13 @@ true: bin_annot, debug, safe_string
                        package(nocrypto.lwt), \
                        package(conduit)
 
+<lib/websocket_cohttp_lwt.*>: package(lwt), \
+                              package(lwt.ppx), \
+                              package(uri), \
+                              package(cohttp.lwt), \
+                              package(containers), \
+                              package(conduit)
+
 <lib/websocket_async.*>: package(async), \
                        package(uri), \
                        package(cohttp.async), \
@@ -44,3 +51,14 @@ true: bin_annot, debug, safe_string
                        package(cohttp.async), \
                        package(nocrypto.unix), \
                        package(containers)
+
+<tests/upgrade_connection.*>: \
+    package(core), \
+    package(containers), \
+    package(cohttp), \
+    package(cohttp.lwt), \
+    package(conduit), \
+    package(lwt), \
+    package(lwt.ppx), \
+    package(nocrypto), \
+    package(ppx_deriving)
