@@ -43,13 +43,13 @@ let client
     let req = Cohttp.Request.make ~headers uri in
     Request.write (fun writer -> Deferred.unit) req w >>= fun () ->
     Response.read r >>| function
-    | `Eof -> Result.fail "EOF"
-    | `Invalid s -> Result.fail s
+    | `Eof -> raise End_of_file
+    | `Invalid s -> failwith s
     | `Ok response ->
         let status = Cohttp.Response.status response in
         let headers = Cohttp.Response.headers response in
         if Cohttp.Code.(is_error @@ code_of_status status)
-        then Result.failf "HTTP_Error %s" Cohttp.Code.(string_of_status status)
+        then raise @@ HTTP_Error Cohttp.Code.(string_of_status status)
         else if not (Cohttp.Response.version response = `HTTP_1_1
                      && status = `Switching_protocols
                      && CCOpt.map String.lowercase @@
@@ -58,45 +58,52 @@ let client
                      && Cohttp.Header.get headers "sec-websocket-accept" =
                         Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
                     )
-        then Result.fail "Protocol error"
-        else Result.return ()
+        then failwith "Protocol error"
+        else ()
   in
-  try_with (fun () -> drain_handshake net_to_ws ws_to_net) >>= function
-  | Error exn -> return @@ Result.failf "%s" Exn.(to_string exn)
-  | Ok (Error msg) -> return @@ Result.fail msg
-  | Ok (Ok ()) ->
-      let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
-      let buf = Buffer.create 128 in
-      (* this terminates -> net_to_ws && ws_to_net is closed *)
-      let rec forward_frames_to_app () =
-        try_with
-          (fun () -> read_frame ~g () >>= function
-             | `Error msg -> failwith msg
-             | `Ok fr ->
-                 Pipe.write ws_to_app fr >>| fun () ->
-                 debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
-          ) >>= function
-        | Ok () -> forward_frames_to_app ()
-        | Error exn ->
-            debug log "%s" Exn.(to_string exn);
-            Deferred.unit
-      in
-      (* ws_to_net closed <-> app_to_ws closed *)
-      let forward_frames_to_net () =
-        Writer.transfer ws_to_net app_to_ws
-          (fun fr ->
-             Buffer.clear buf;
-             write_frame_to_buf ~g ~masked:true buf fr;
-             let contents = Buffer.contents buf in
-             debug log "app -> net: %S" contents;
-             Writer.write ws_to_net contents
-          )
-      in
-      Deferred.any [
-        forward_frames_to_app ();
-        forward_frames_to_net ();
-        Pipe.closed app_to_ws; (* The user wants to close *)
-      ] >>| Result.return
+  let run () =
+    drain_handshake net_to_ws ws_to_net >>= fun () ->
+    let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
+    let buf = Buffer.create 128 in
+    (* this terminates -> net_to_ws && ws_to_net is closed *)
+    let rec forward_frames_to_app () =
+      try_with
+        (fun () -> read_frame ~g () >>= function
+           | `Error msg -> failwith msg
+           | `Ok fr ->
+             Pipe.write ws_to_app fr >>| fun () ->
+             debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
+        ) >>= function
+      | Ok () -> forward_frames_to_app ()
+      | Error exn ->
+        debug log "%s" Exn.(to_string exn);
+        Deferred.unit
+    in
+    (* ws_to_net closed <-> app_to_ws closed *)
+    let forward_frames_to_net () =
+      Writer.transfer ws_to_net app_to_ws
+        (fun fr ->
+           Buffer.clear buf;
+           write_frame_to_buf ~g ~masked:true buf fr;
+           let contents = Buffer.contents buf in
+           debug log "app -> net: %S" contents;
+           Writer.write ws_to_net contents
+        )
+    in
+    Deferred.any [
+      forward_frames_to_app ();
+      forward_frames_to_net ();
+      Pipe.closed app_to_ws; (* The user wants to close *)
+    ]
+  in
+  don't_wait_for begin
+    try_with run >>| function
+    | Ok () -> ()
+    | Error exn ->
+      error log "%s" Exn.(to_string exn);
+      Pipe.close_read app_to_ws;
+      Pipe.close ws_to_app;
+  end
 
 let client_ez
     ?log
@@ -104,7 +111,7 @@ let client_ez
     ?(heartbeat=Time.Span.zero)
     ~g
     uri
-    s r w =
+    _s r w =
   let open Frame in
   let last_pong = ref @@ Time.epoch in
   let rec keepalive w =
@@ -142,18 +149,30 @@ let client_ez
     | _ ->
         Pipe.write w @@ Frame.close 1002 >>| fun () -> Pipe.close w; None
   in
-  let ivar = Ivar.create () in
   let app_to_ws, reactor_write = Pipe.create () in
   let to_reactor_write, client_write = Pipe.create () in
-  don't_wait_for @@
-  Pipe.transfer to_reactor_write reactor_write
-    ~f:(fun content -> Frame.create ~content ());
   let client_read, ws_to_app = Pipe.create () in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
-  Ivar.fill ivar ();
-  ignore @@ client ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
-  Ivar.read ivar >>| fun () ->
-  if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
+  let run () =
+    Deferred.all_unit [
+      Pipe.transfer to_reactor_write reactor_write
+        ~f:(fun content -> Frame.create ~content ());
+      if heartbeat <> Time.Span.zero then
+        keepalive reactor_write else
+        Deferred.never ()
+    ]
+  in
+  client ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  don't_wait_for begin
+    try_with run >>| function
+    | Ok () -> ()
+    | Error exn ->
+      error log "%s" Exn.(to_string exn);
+      Pipe.close reactor_write;
+      Pipe.close_read to_reactor_write;
+      Pipe.close client_write;
+      Pipe.close_read client_read
+  end;
   client_read, client_write
 
 let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =

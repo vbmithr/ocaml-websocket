@@ -29,6 +29,8 @@ open Async.Std
 
 module Frame : module type of Websocket.Frame
 
+exception HTTP_Error of string
+
 val client :
   ?log:Log.t ->
   ?name:string ->
@@ -39,7 +41,7 @@ val client :
   net_to_ws:Reader.t ->
   ws_to_net:Writer.t ->
   Uri.t ->
-  (unit, string) Result.t Deferred.t
+  unit
 
 val client_ez :
   ?log:Log.t ->
@@ -50,7 +52,7 @@ val client_ez :
   ('a, 'b) Socket.t ->
   Reader.t ->
   Writer.t ->
-  (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.t
+  string Pipe.Reader.t * string Pipe.Writer.t
 
 val server :
   ?log:Log.t ->

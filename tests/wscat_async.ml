@@ -24,8 +24,11 @@ let client uri =
     (if scheme = "https" || scheme = "wss"
      then Conduit_async_ssl.ssl_connect r w
      else return (r, w)) >>= fun (r, w) ->
-    client_ez ~g:!Nocrypto.Rng.generator ~log:Lazy.(force log)
-      ~heartbeat:Time.Span.(of_sec 5.) uri s r w >>= fun (r, w) ->
+    let r, w = client_ez
+        ~g:!Nocrypto.Rng.generator
+        ~log:Lazy.(force log)
+        ~heartbeat:Time.Span.(of_sec 5.) uri s r w
+    in
     don't_wait_for @@ read_line_and_write_to_pipe w;
     Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
   in
