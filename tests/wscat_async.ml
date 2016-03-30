@@ -24,7 +24,7 @@ let client uri =
     (if scheme = "https" || scheme = "wss"
      then Conduit_async_ssl.ssl_connect r w
      else return (r, w)) >>= fun (r, w) ->
-    client_ez ~log:Lazy.(force log)
+    client_ez ~g:!Nocrypto.Rng.generator ~log:Lazy.(force log)
       ~heartbeat:Time.Span.(of_sec 5.) uri s r w >>= fun (r, w) ->
     don't_wait_for @@ read_line_and_write_to_pipe w;
     Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
@@ -78,6 +78,7 @@ let command =
   in
   let run loglevel url =
     Option.iter loglevel ~f:set_loglevel;
+    Nocrypto_entropy_unix.initialize ();
     don't_wait_for @@ client @@ Uri.of_string url;
     never_returns @@ Scheduler.go ()
   in

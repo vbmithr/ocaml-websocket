@@ -23,18 +23,18 @@ let error log =
   Printf.ksprintf
     (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg))
 
-
 let client
     ?log
     ?(name="")
     ?(extra_headers = Cohttp.Header.init ())
+    ~g
     ~app_to_ws
     ~ws_to_app
     ~net_to_ws
     ~ws_to_net
     uri =
   let drain_handshake r w =
-    let nonce = random_string ~base64:true 16 in
+    let nonce = random_string ~g ~base64:true 16 in
     let headers = Cohttp.Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
@@ -61,7 +61,6 @@ let client
         then Result.fail "Protocol error"
         else Result.return ()
   in
-  Nocrypto_entropy_unix.initialize (); (* FIXME: generate entropy *)
   try_with (fun () -> drain_handshake net_to_ws ws_to_net) >>= function
   | Error exn -> return @@ Result.failf "%s" Exn.(to_string exn)
   | Ok (Error msg) -> return @@ Result.fail msg
@@ -71,7 +70,7 @@ let client
       (* this terminates -> net_to_ws && ws_to_net is closed *)
       let rec forward_frames_to_app () =
         try_with
-          (fun () -> read_frame () >>= function
+          (fun () -> read_frame ~g () >>= function
              | `Error msg -> failwith msg
              | `Ok fr ->
                  Pipe.write ws_to_app fr >>| fun () ->
@@ -87,7 +86,7 @@ let client
         Writer.transfer ws_to_net app_to_ws
           (fun fr ->
              Buffer.clear buf;
-             write_frame_to_buf ~masked:true buf fr;
+             write_frame_to_buf ~g ~masked:true buf fr;
              let contents = Buffer.contents buf in
              debug log "app -> net: %S" contents;
              Writer.write ws_to_net contents
@@ -102,7 +101,10 @@ let client
 let client_ez
     ?log
     ?(wait_for_pong=Time.Span.of_sec 5.)
-    ?(heartbeat=Time.Span.zero) uri s r w =
+    ?(heartbeat=Time.Span.zero)
+    ~g
+    uri
+    s r w =
   let open Frame in
   let last_pong = ref @@ Time.epoch in
   let rec keepalive w =
@@ -149,12 +151,12 @@ let client_ez
   let client_read, ws_to_app = Pipe.create () in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
   Ivar.fill ivar ();
-  ignore @@ client ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  ignore @@ client ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
   Ivar.read ivar >>| fun () ->
   if heartbeat <> Time.Span.zero then don't_wait_for @@ keepalive reactor_write;
   client_read, client_write
 
-let server ?log ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
+let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
     (Request.read r >>| function
       | `Ok r -> r
@@ -188,7 +190,6 @@ let server ?log ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
         ~headers:response_headers () in
     Response.write (fun writer -> Deferred.unit) response w
   in
-  Nocrypto_entropy_unix.initialize (); (* FIXME: generate entropy *)
   Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (w, _) ->
   Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
   server_fun address r w >>= fun () ->
@@ -196,7 +197,7 @@ let server ?log ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let rec loop () =
     try_with
       (fun () ->
-         read_frame () >>= function
+         read_frame ~g () >>= function
          | `Error msg -> failwith msg
          | `Ok fr -> Pipe.write ws_to_app fr) >>= function
     | Ok () -> loop ()
@@ -208,7 +209,7 @@ let server ?log ?(name="") ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->
        Buffer.clear buf;
-       write_frame_to_buf ~masked:true buf fr;
+       write_frame_to_buf ~g ~masked:true buf fr;
        Buffer.contents buf
     )
   in

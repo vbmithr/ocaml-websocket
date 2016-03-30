@@ -43,7 +43,7 @@ let handler
     >>= fun () ->
     Cohttp_lwt_body.drain_body body
     >>= fun () ->
-    Websocket_cohttp_lwt.upgrade_connection req (fst conn) (
+    Websocket_cohttp_lwt.upgrade_connection ~g:!Nocrypto.Rng.generator req (fst conn) (
         fun f ->
             match f.Websocket.Frame.opcode with
             | Websocket.Frame.Opcode.Close ->
@@ -91,8 +91,8 @@ let start_server host port () =
     Printf.eprintf "[SERV] connection %s closed\n%!"
       (Sexplib.Sexp.to_string_hum (Conduit_lwt_unix.sexp_of_flow ch))
   in
-  Lwt_io.eprintf "[SERV] Listening for HTTP on port %d\n%!" port
-  >>= fun _ ->
+  Lwt_io.eprintf "[SERV] Listening for HTTP on port %d\n%!" port >>= fun () ->
+  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   Cohttp_lwt_unix.Server.create
     ~mode:(`TCP (`Port port))
     (Cohttp_lwt_unix.Server.make ~callback:handler ~conn_closed ())

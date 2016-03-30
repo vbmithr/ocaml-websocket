@@ -7,7 +7,7 @@ let client uri =
   let open Frame in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   Conduit_lwt_unix.(endp_to_client ~ctx:default_ctx endp >>= fun client ->
-  with_connection ~ctx:default_ctx client uri) >>= fun (recv, send) ->
+  with_connection ~g:!Nocrypto.Rng.generator ~ctx:default_ctx client uri) >>= fun (recv, send) ->
   let react fr =
     match fr.opcode with
     | Opcode.Ping -> send @@ Frame.create ~opcode:Opcode.Pong ()
@@ -72,10 +72,11 @@ let server uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   Conduit_lwt_unix.(
     endp_to_server ~ctx:default_ctx endp >>= fun server ->
-    establish_server ~ctx:default_ctx ~mode:server echo_fun
+    establish_server ~g:!Nocrypto.Rng.generator ~ctx:default_ctx ~mode:server echo_fun
   )
 
 let main is_server uri =
+  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
   else client uri
 
