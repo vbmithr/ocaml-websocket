@@ -26,36 +26,7 @@
 
 val section : Lwt_log_core.section
 
-module Frame : sig
-  module Opcode : sig
-    type t =
-      | Continuation
-      | Text
-      | Binary
-      | Close
-      | Ping
-      | Pong
-      | Ctrl of int
-      | Nonctrl of int [@@deriving show,enum]
-
-    val is_ctrl : t -> bool
-    (** [is_ctrl opcode] is [true] if [opcode] is a control
-        frame. *)
-  end
-  (** Type representing websocket opcodes *)
-
-  type t = { opcode: Opcode.t;
-             extension: int;
-             final: bool;
-             content: string;
-           } [@@deriving show]
-  (** The type representing websocket frames *)
-
-  val create : ?opcode:Opcode.t -> ?extension:int -> ?final:bool ->
-    ?content:string -> unit -> t
-
-  val close : int -> t
-end
+module Frame : module type of Websocket.Frame
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
