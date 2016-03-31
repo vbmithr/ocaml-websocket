@@ -55,7 +55,7 @@ let main uri =
   let open Conduit_lwt_unix in
   endp_to_server ~ctx:default_ctx endp >>= fun server ->
   Nocrypto_entropy_lwt.initialize () >>= fun () ->
-  establish_server ~g:!Nocrypto.Rng.generator ~ctx:default_ctx ~mode:server handler
+  establish_server ~ctx:default_ctx ~mode:server handler
 
 let () =
   let uri = ref "http://localhost:9001" in

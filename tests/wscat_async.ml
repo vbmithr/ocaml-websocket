@@ -25,7 +25,6 @@ let client uri =
      then Conduit_async_ssl.ssl_connect r w
      else return (r, w)) >>= fun (r, w) ->
     let r, w = client_ez
-        ~g:!Nocrypto.Rng.generator
         ~log:Lazy.(force log)
         ~heartbeat:Time.Span.(of_sec 5.) uri s r w
     in

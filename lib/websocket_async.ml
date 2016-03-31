@@ -26,14 +26,14 @@ let client
     ?log
     ?(name="")
     ?(extra_headers = Header.init ())
-    ~g
+    ?g
     ~app_to_ws
     ~ws_to_app
     ~net_to_ws
     ~ws_to_net
     uri =
   let drain_handshake r w =
-    let nonce = random_string ~g ~base64:true 16 in
+    let nonce = random_string ?g ~base64:true 16 in
     let headers = Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
@@ -56,12 +56,12 @@ let client
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
-    let read_frame = make_read_frame ~masked:true (net_to_ws, ws_to_net) in
+    let read_frame = make_read_frame ?g ~masked:true (net_to_ws, ws_to_net) in
     let buf = Buffer.create 128 in
     (* this terminates -> net_to_ws && ws_to_net is closed *)
     let rec forward_frames_to_app () =
       try_with
-        (fun () -> read_frame ~g () >>= function
+        (fun () -> read_frame () >>= function
            | `Error msg -> failwith msg
            | `Ok fr ->
              Pipe.write ws_to_app fr >>| fun () ->
@@ -77,7 +77,7 @@ let client
       Writer.transfer ws_to_net app_to_ws
         (fun fr ->
            Buffer.clear buf;
-           write_frame_to_buf ~g ~masked:true buf fr;
+           write_frame_to_buf ?g ~masked:true buf fr;
            let contents = Buffer.contents buf in
            debug log "app -> net: %S" contents;
            Writer.write ws_to_net contents
@@ -102,7 +102,7 @@ let client_ez
     ?log
     ?(wait_for_pong=Time.Span.of_sec 5.)
     ?(heartbeat=Time.Span.zero)
-    ~g
+    ?g
     uri
     _s r w =
   let open Frame in
@@ -155,7 +155,7 @@ let client_ez
         Deferred.never ()
     ]
   in
-  client ?log ~g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  client ?log ?g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
   don't_wait_for begin
     try_with ~name:"client_ez" run >>| function
     | Ok () -> ()
@@ -168,7 +168,7 @@ let client_ez
   end;
   client_read, client_write
 
-let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
+let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
   let server_fun address r w =
     (Request_async.read r >>| function
       | `Ok r -> r
@@ -205,9 +205,9 @@ let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
   Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (w, _) ->
   Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
   server_fun address r w >>= fun () ->
-  let read_frame = make_read_frame ~masked:true (r, w) in
+  let read_frame = make_read_frame ?g ~masked:true (r, w) in
   let run () =
-    read_frame ~g () >>= function
+    read_frame () >>= function
     | `Error msg -> failwith msg
     | `Ok fr -> Pipe.write ws_to_app fr
   in
@@ -222,7 +222,7 @@ let server ?log ?(name="") ~g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->
        Buffer.clear buf;
-       write_frame_to_buf ~g ~masked:true buf fr;
+       write_frame_to_buf ?g ~masked:true buf fr;
        Buffer.contents buf
     )
   in

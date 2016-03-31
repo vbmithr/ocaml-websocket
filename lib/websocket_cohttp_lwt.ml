@@ -3,18 +3,18 @@ module Lwt_IO = Websocket.IO(Cohttp_lwt_unix_io)
 
 open Lwt
 
-let send_frames ~g stream oc =
+let send_frames ?g stream oc =
     let buf = Buffer.create 128 in
     let send_frame fr =
       Buffer.clear buf;
-      Lwt_IO.write_frame_to_buf ~g ~masked:false buf fr;
+      Lwt_IO.write_frame_to_buf ?g ~masked:false buf fr;
       Lwt_io.write oc @@ Buffer.contents buf
     in
     Lwt_stream.iter_s send_frame stream
 
-let read_frames ~g icoc handler_fn =
+let read_frames ?g icoc handler_fn =
     let read_frame () =
-      let rf = Lwt_IO.make_read_frame ~g ~masked:false icoc () in
+      let rf = Lwt_IO.make_read_frame ?g ~masked:false icoc () in
       match%lwt rf with
       | `Ok frame -> Lwt.return frame
       | `Error msg -> Lwt.fail_with msg
@@ -23,7 +23,7 @@ let read_frames ~g icoc handler_fn =
       read_frame () >>= Lwt.wrap1 handler_fn
     done
 
-let upgrade_connection ~g request conn incoming_handler =
+let upgrade_connection ?g request conn incoming_handler =
   let headers = Cohttp.Request.headers request in
   let key = CCOpt.get_exn @@ Cohttp.Header.get headers "sec-websocket-key" in
   let hash = key ^ Websocket.websocket_uuid |> Websocket.b64_encoded_sha1sum in
@@ -54,10 +54,10 @@ let upgrade_connection ~g request conn incoming_handler =
               Lwt.join [
                   (* input: data from the client is read from the input channel
                    * of the tcp connection; pass it to handler function *)
-                  read_frames ~g (ic, oc) incoming_handler;
+                  read_frames ?g (ic, oc) incoming_handler;
                   (* output: data for the client is written to the output
                    * channel of the tcp connection *)
-                  send_frames ~g frames_out_stream oc;
+                  send_frames ?g frames_out_stream oc;
               ]
           | _ -> Lwt.fail_with "expected TCP Websocket connection"
   in

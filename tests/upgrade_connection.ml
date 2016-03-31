@@ -43,7 +43,7 @@ let handler
     >>= fun () ->
     Cohttp_lwt_body.drain_body body
     >>= fun () ->
-    Websocket_cohttp_lwt.upgrade_connection ~g:!Nocrypto.Rng.generator req (fst conn) (
+    Websocket_cohttp_lwt.upgrade_connection req (fst conn) (
         fun f ->
             match f.Websocket.Frame.opcode with
             | Websocket.Frame.Opcode.Close ->

@@ -13,10 +13,10 @@ let set_tcp_nodelay flow =
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
-let with_connection ?(extra_headers = Cohttp.Header.init ()) ~g ~ctx client uri =
+let with_connection ?(extra_headers = Cohttp.Header.init ()) ?g ~ctx client uri =
   let connect () =
     let module C = Cohttp in
-    let nonce = random_string ~g ~base64:true 16 in
+    let nonce = random_string ?g ~base64:true 16 in
     let headers = C.Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
@@ -57,22 +57,22 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ~g ~ctx client uri 
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~masked:true (ic, oc) in
+  let read_frame = make_read_frame ?g ~masked:true (ic, oc) in
   let buf = Buffer.create 128 in
   (fun () ->
      try%lwt
-       read_frame ~g () >>= function
+       read_frame () >>= function
        | `Ok frame -> Lwt.return frame
        | `Error msg -> Lwt.fail_with msg
      with exn -> Lwt.fail exn),
   (fun frame ->
      try%lwt
        Buffer.clear buf;
-       write_frame_to_buf ~g ~masked:true buf frame;
+       write_frame_to_buf ?g ~masked:true buf frame;
        Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 
-let establish_server ?timeout ?stop ~g ~ctx ~mode react =
+let establish_server ?timeout ?stop ?g ~ctx ~mode react =
   let module C = Cohttp in
   let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
   let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
@@ -113,12 +113,12 @@ let establish_server ?timeout ?stop ~g ~ctx ~mode react =
     let buf = Buffer.create 128 in
     let send_frame fr =
       Buffer.clear buf;
-      write_frame_to_buf ~g ~masked:false buf fr;
+      write_frame_to_buf ?g ~masked:false buf fr;
       Lwt_io.write oc @@ Buffer.contents buf
     in
-    let read_frame = make_read_frame ~masked:false (ic, oc) in
+    let read_frame = make_read_frame ?g ~masked:false (ic, oc) in
     let read_frame () =
-      read_frame ~g () >>= function
+      read_frame () >>= function
       | `Ok frame -> Lwt.return frame
       | `Error msg -> Lwt.fail_with msg
     in
@@ -150,7 +150,7 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?timeout ?stop ~g ~ctx ~mode react =
+let establish_standard_server ?timeout ?stop ?g ~ctx ~mode react =
   let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
@@ -170,4 +170,4 @@ let establish_standard_server ?timeout ?stop ~g ~ctx ~mode react =
     in
     react id req recv send
   in
-  establish_server ?timeout ?stop ~g ~ctx ~mode f
+  establish_server ?timeout ?stop ?g ~ctx ~mode f
