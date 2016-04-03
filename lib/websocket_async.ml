@@ -161,9 +161,8 @@ let client_ez
     | Ok () -> ()
     | Error exn ->
       error log "%s" Exn.(to_string exn);
-      Pipe.close reactor_write;
+      Pipe.close_read app_to_ws;
       Pipe.close_read to_reactor_write;
-      Pipe.close client_write;
       Pipe.close_read client_read
   end;
   client_read, client_write
