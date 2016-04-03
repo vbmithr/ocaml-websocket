@@ -27,6 +27,7 @@ let client
     ?(name="")
     ?(extra_headers = Header.init ())
     ?g
+    ?initialized
     ~app_to_ws
     ~ws_to_app
     ~net_to_ws
@@ -56,24 +57,28 @@ let client
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
+    Option.iter initialized (fun ivar -> Ivar.fill ivar ());
     let read_frame = make_read_frame ?g ~masked:true (net_to_ws, ws_to_net) in
     let buf = Buffer.create 128 in
     (* this terminates -> net_to_ws && ws_to_net is closed *)
-    let rec forward_frames_to_app () =
-      try_with
-        (fun () -> read_frame () >>= function
-           | `Error msg -> failwith msg
-           | `Ok fr ->
-             Pipe.write ws_to_app fr >>| fun () ->
-             debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
-        ) >>= function
-      | Ok () -> forward_frames_to_app ()
-      | Error exn ->
-        debug log "%s" Exn.(to_string exn);
+    let rec forward_frames_to_app ws_to_app =
+      if Pipe.is_closed ws_to_app then
         Deferred.unit
+      else
+        try_with
+          (fun () -> read_frame () >>= function
+             | `Error msg -> failwith msg
+             | `Ok fr ->
+               Pipe.write ws_to_app fr >>| fun () ->
+               debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
+          ) >>= function
+        | Ok () -> forward_frames_to_app ws_to_app
+        | Error exn ->
+          debug log "%s" Exn.(to_string exn);
+          Deferred.unit
     in
     (* ws_to_net closed <-> app_to_ws closed *)
-    let forward_frames_to_net () =
+    let forward_frames_to_net ws_to_net app_to_ws =
       Writer.transfer ws_to_net app_to_ws
         (fun fr ->
            Buffer.clear buf;
@@ -83,20 +88,19 @@ let client
            Writer.write ws_to_net contents
         )
     in
-    Deferred.any [
-      forward_frames_to_app ();
-      forward_frames_to_net ();
-      Pipe.closed app_to_ws; (* The user wants to close *)
+    Deferred.all_unit [
+      forward_frames_to_app ws_to_app;
+      forward_frames_to_net ws_to_net app_to_ws;
     ]
   in
-  don't_wait_for begin
-    try_with ~name:"client" run >>| function
-    | Ok () -> ()
-    | Error exn ->
-      error log "%s" Exn.(to_string exn);
-      Pipe.close_read app_to_ws;
-      Pipe.close ws_to_app;
-  end
+  try_with ~name:"client" run >>| function
+  | Ok () ->
+    Pipe.close_read app_to_ws;
+    Pipe.close ws_to_app
+  | Error exn ->
+    error log "%s" Exn.(to_string exn);
+    Pipe.close_read app_to_ws;
+    Pipe.close ws_to_app
 
 let client_ez
     ?log
@@ -107,19 +111,22 @@ let client_ez
     _s r w =
   let open Frame in
   let last_pong = ref @@ Time.epoch in
+  let watch w =
+    after wait_for_pong >>| fun () ->
+    let time_since_last_pong = Time.abs_diff !last_pong @@ Time.now () in
+    if Time.Span.(time_since_last_pong > wait_for_pong)
+    then Pipe.close w
+  in
   let rec keepalive w =
-    let rec watch () =
-      after wait_for_pong >>| fun () ->
-      let time_since_last_pong = Time.abs_diff !last_pong @@ Time.now () in
-      if Time.Span.(time_since_last_pong > wait_for_pong)
-      then Pipe.close w
-    in
     after heartbeat >>= fun () ->
-    Pipe.write w @@ Frame.create
-      ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
-    debug log "-> PING";
-    don't_wait_for @@ watch ();
-    keepalive w
+    if Pipe.is_closed w then
+      Deferred.unit
+    else
+      Pipe.write w @@ Frame.create
+        ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
+      debug log "-> PING";
+      don't_wait_for @@ watch w;
+      keepalive w
   in
   let react w fr =
     debug log "<- %s" Frame.(show fr);
@@ -146,22 +153,27 @@ let client_ez
   let to_reactor_write, client_write = Pipe.create () in
   let client_read, ws_to_app = Pipe.create () in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
-  let run () =
-    Deferred.all_unit [
+  let initialized = Ivar.create () in
+  don't_wait_for begin
+    Ivar.read initialized >>= fun () -> Deferred.all_unit [
       Pipe.transfer to_reactor_write reactor_write
         ~f:(fun content -> Frame.create ~content ());
       if heartbeat <> Time.Span.zero then
-        keepalive reactor_write else
-        Deferred.never ()
+        keepalive reactor_write
+      else
+        Deferred.unit
     ]
-  in
-  client ?log ?g ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri;
+  end;
   don't_wait_for begin
-    try_with ~name:"client_ez" run >>| function
-    | Ok () -> ()
+    try_with ~extract_exn:true ~name:"client_ez"
+      (fun () -> client ?log ?g ~initialized ~app_to_ws
+          ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri)
+    >>| function
+    | Ok () ->
+      Pipe.close_read to_reactor_write;
+      Pipe.close_read client_read
     | Error exn ->
       error log "%s" Exn.(to_string exn);
-      Pipe.close_read app_to_ws;
       Pipe.close_read to_reactor_write;
       Pipe.close_read client_read
   end;

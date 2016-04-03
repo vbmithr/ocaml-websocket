@@ -34,12 +34,13 @@ val client :
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
   ?g:Nocrypto.Rng.g ->
+  ?initialized:unit Ivar.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   net_to_ws:Reader.t ->
   ws_to_net:Writer.t ->
   Uri.t ->
-  unit
+  unit Deferred.t
 
 val client_ez :
   ?log:Log.t ->
