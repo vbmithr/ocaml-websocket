@@ -233,7 +233,7 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
     (fun fr ->
        Buffer.clear buf;
-       write_frame_to_buf ?g ~masked:true buf fr;
+       write_frame_to_buf ?g ~masked:false buf fr;
        Buffer.contents buf
     )
   in
