@@ -54,7 +54,6 @@ true: bin_annot, debug, safe_string
                        package(containers)
 
 <tests/upgrade_connection.*>: \
-    package(core), \
     package(containers), \
     package(cohttp), \
     package(cohttp.lwt), \
