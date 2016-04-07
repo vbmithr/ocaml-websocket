@@ -14,4 +14,5 @@ let () =
     Pkg.bin ~cond:lwt ~auto:true "tests/wscat";
     Pkg.bin ~cond:async ~auto:true "tests/wscat_async";
     Pkg.bin ~cond:lwt ~auto:true "tests/reynir";
+    Pkg.bin ~cond:lwt ~auto:true "tests/upgrade_connection";
   ]

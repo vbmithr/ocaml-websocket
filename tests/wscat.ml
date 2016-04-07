@@ -76,6 +76,7 @@ let server uri =
   )
 
 let main is_server uri =
+  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
   else client uri
 

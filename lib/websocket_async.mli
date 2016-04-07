@@ -27,65 +27,36 @@
 open Core.Std
 open Async.Std
 
-module Frame : sig
-  module Opcode : sig
-    type t =
-      | Continuation
-      | Text
-      | Binary
-      | Close
-      | Ping
-      | Pong
-      | Ctrl of int
-      | Nonctrl of int [@@deriving show,enum]
-
-    val is_ctrl : t -> bool
-    (** [is_ctrl opcode] is [true] if [opcode] is a control
-        frame. *)
-  end
-  (** Type representing websocket opcodes *)
-
-  type t = { opcode: Opcode.t;
-             extension: int;
-             final: bool;
-             content: string;
-           } [@@deriving show]
-  (** The type representing websocket frames *)
-
-  val create :
-    ?opcode:Opcode.t ->
-    ?extension:int ->
-    ?final:bool ->
-    ?content:string ->
-    unit ->
-    t
-
-  val close : int -> t
-end
-
-val log : Log.t
+module Frame : module type of Websocket.Frame
 
 val client :
+  ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
+  ?g:Nocrypto.Rng.g ->
+  ?initialized:unit Ivar.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   net_to_ws:Reader.t ->
   ws_to_net:Writer.t ->
   Uri.t ->
-  (unit, string) Result.t Deferred.t
+  unit Deferred.t
 
 val client_ez :
+  ?log:Log.t ->
   ?wait_for_pong:Time.Span.t ->
   ?heartbeat:Time.Span.t ->
+  ?g:Nocrypto.Rng.g ->
   Uri.t ->
   ('a, 'b) Socket.t ->
   Reader.t ->
   Writer.t ->
-  (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.t
+  string Pipe.Reader.t * string Pipe.Writer.t
 
 val server :
+  ?log:Log.t ->
   ?name:string ->
+  ?g:Nocrypto.Rng.g ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   net_to_ws:(string Pipe.Reader.t) ->

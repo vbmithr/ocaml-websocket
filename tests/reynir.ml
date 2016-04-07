@@ -52,8 +52,10 @@ let handler id req recv send =
 
 let main uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  establish_server ~ctx:default_ctx ~mode:server handler)
+  let open Conduit_lwt_unix in
+  endp_to_server ~ctx:default_ctx endp >>= fun server ->
+  Nocrypto_entropy_lwt.initialize () >>= fun () ->
+  establish_server ~ctx:default_ctx ~mode:server handler
 
 let () =
   let uri = ref "http://localhost:9001" in

@@ -26,39 +26,11 @@
 
 val section : Lwt_log_core.section
 
-module Frame : sig
-  module Opcode : sig
-    type t =
-      | Continuation
-      | Text
-      | Binary
-      | Close
-      | Ping
-      | Pong
-      | Ctrl of int
-      | Nonctrl of int [@@deriving show,enum]
-
-    val is_ctrl : t -> bool
-    (** [is_ctrl opcode] is [true] if [opcode] is a control
-        frame. *)
-  end
-  (** Type representing websocket opcodes *)
-
-  type t = { opcode: Opcode.t;
-             extension: int;
-             final: bool;
-             content: string;
-           } [@@deriving show]
-  (** The type representing websocket frames *)
-
-  val create : ?opcode:Opcode.t -> ?extension:int -> ?final:bool ->
-    ?content:string -> unit -> t
-
-  val close : int -> t
-end
+module Frame : module type of Websocket.Frame
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
+  ?g:Nocrypto.Rng.g ->
   ctx:Conduit_lwt_unix.ctx ->
   Conduit_lwt_unix.client ->
   Uri.t ->
@@ -67,6 +39,7 @@ val with_connection :
 val establish_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
+  ?g:Nocrypto.Rng.g ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
@@ -84,6 +57,7 @@ val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
 val establish_standard_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
+  ?g:Nocrypto.Rng.g ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
