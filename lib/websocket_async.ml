@@ -179,7 +179,7 @@ let client_ez
   end;
   client_read, client_write
 
-let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
+let server_reader_writer ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
   let server_fun address r w =
     (Request_async.read r >>| function
       | `Ok r -> r
@@ -213,10 +213,8 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
         ~headers:response_headers () in
     Response_async.write (fun writer -> Deferred.unit) response w
   in
-  Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (w, _) ->
-  Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun r ->
-  server_fun address r w >>= fun () ->
-  let read_frame = make_read_frame ?g ~masked:true (r, w) in
+  server_fun address reader writer >>= fun () ->
+  let read_frame = make_read_frame ?g ~masked:true (reader, writer) in
   let run () =
     read_frame () >>= function
     | `Error msg -> failwith msg
@@ -230,11 +228,17 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net addres
       loop ()
   in
   let buf = Buffer.create 128 in
-  let transfer_end = Pipe.transfer app_to_ws Writer.(pipe w)
+  let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
     (fun fr ->
        Buffer.clear buf;
-       write_frame_to_buf ?g ~masked:true buf fr;
+       write_frame_to_buf ?g ~masked:false buf fr;
        Buffer.contents buf
     )
   in
   Deferred.any [transfer_end; loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+
+
+let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
+  Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (writer, _) ->
+  Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun reader ->
+  server_reader_writer ?log ~name ?g ~app_to_ws ~ws_to_app ~reader ~writer address
