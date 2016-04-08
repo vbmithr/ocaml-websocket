@@ -179,7 +179,7 @@ let client_ez
   end;
   client_read, client_write
 
-let server_reader_writer ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
+let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
   let server_fun address r w =
     (Request_async.read r >>| function
       | `Ok r -> r
@@ -236,9 +236,3 @@ let server_reader_writer ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~write
     )
   in
   Deferred.any [transfer_end; loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
-
-
-let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net address =
-  Writer.of_pipe Info.(of_string "ws_to_net") ws_to_net >>= fun (writer, _) ->
-  Reader.of_pipe Info.(of_string "net_to_ws") net_to_ws >>= fun reader ->
-  server_reader_writer ?log ~name ?g ~app_to_ws ~ws_to_app ~reader ~writer address

@@ -59,17 +59,6 @@ val server :
   ?g:Nocrypto.Rng.g ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
-  net_to_ws:(string Pipe.Reader.t) ->
-  ws_to_net:(string Pipe.Writer.t) ->
-  Socket.Address.t ->
-  unit Deferred.t
-
-val server_reader_writer :
-  ?log:Log.t ->
-  ?name:string ->
-  ?g:Nocrypto.Rng.g ->
-  app_to_ws:(Frame.t Pipe.Reader.t) ->
-  ws_to_app:(Frame.t Pipe.Writer.t) ->
   reader:(Reader.t) ->
   writer:(Writer.t) ->
   Socket.Address.t ->
