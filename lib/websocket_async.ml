@@ -10,6 +10,11 @@ open Async_IO
 module Request_async = Request.Make(Cohttp_async_io)
 module Response_async = Response.Make(Cohttp_async_io)
 
+let set_tcp_nodelay writer =
+  let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
+  Socket.setopt socket Socket.Opt.nodelay true
+
+
 let debug log =
   Printf.ksprintf
     (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg))
@@ -214,6 +219,7 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
     Response_async.write (fun writer -> Deferred.unit) response w
   in
   server_fun address reader writer >>= fun () ->
+  set_tcp_nodelay writer;
   let read_frame = make_read_frame ?g ~masked:true (reader, writer) in
   let run () =
     read_frame () >>= function
