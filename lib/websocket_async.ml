@@ -221,17 +221,17 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
   server_fun address reader writer >>= fun () ->
   set_tcp_nodelay writer;
   let read_frame = make_read_frame ?g ~masked:true (reader, writer) in
-  let run () =
-    read_frame () >>= function
-    | `Error msg -> failwith msg
-    | `Ok fr -> Pipe.write ws_to_app fr
-  in
   let rec loop () =
-    try_with ~name:"server" run >>= function
-    | Ok () -> loop ()
+    read_frame () >>= function
+    | `Error "EOF" -> Deferred.unit
+    | `Error msg -> failwith msg
+    | `Ok fr -> Pipe.write ws_to_app fr >>= loop
+  in
+  let run () =
+    try_with ~name:"server" loop >>| function
+    | Ok () -> ()
     | Error exn ->
-      debug log "%s" Exn.(to_string exn);
-      loop ()
+      debug log "exception in server loop: %s" Exn.(to_string exn)
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
@@ -241,4 +241,4 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
        Buffer.contents buf
     )
   in
-  Deferred.any [transfer_end; loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+  Deferred.any [transfer_end; run (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
