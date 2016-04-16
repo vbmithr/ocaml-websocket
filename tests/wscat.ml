@@ -72,10 +72,13 @@ let server uri =
       Lwt.fail exn
   in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  Conduit_lwt_unix.(
-    endp_to_server ~ctx:default_ctx endp >>= fun server ->
-    establish_server ~ctx:default_ctx ~mode:server echo_fun
-  )
+  let open Conduit_lwt_unix in
+  let endp_str = endp |> Conduit.sexp_of_endp |> Sexplib.Sexp.to_string_hum in
+  Lwt_log.info_f ~section "endp = %s" endp_str >>= fun () ->
+  endp_to_server ~ctx:default_ctx endp >>= fun server ->
+  let server_str = server |> sexp_of_server |> Sexplib.Sexp.to_string_hum in
+  Lwt_log.info_f ~section "server = %s" server_str >>= fun () ->
+  establish_server ~ctx:default_ctx ~mode:server echo_fun
 
 let main is_server uri =
   Nocrypto_entropy_lwt.initialize () >>= fun () ->
