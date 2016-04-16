@@ -33,44 +33,61 @@ let client uri =
   in
   Tcp.(with_connection (to_host_and_port host port) tcp_fun)
 
-(* let server uri = *)
-(*   let echo_fun id req recv send = *)
-(*     let open Frame in *)
-(*     let react fr = *)
-(*       match fr.opcode with *)
-(*       | Opcode.Ping -> *)
-(*         send @@ Frame.create ~opcode:Opcode.Pong ~content:fr.content () *)
-
-(*       | Opcode.Close -> *)
-(*         (\* Immediately echo and pass this last message to the user *\) *)
-(*         (if String.length fr.content >= 2 then *)
-(*            send @@ Frame.create ~opcode:Opcode.Close *)
-(*              ~content:(String.sub fr.content 0 2) () *)
-(*          else send @@ Frame.close 1000) >>= fun () -> *)
-(*         Lwt.fail Exit *)
-
-(*       | Opcode.Pong -> Lwt.return_unit *)
-
-(*       | Opcode.Text *)
-(*       | Opcode.Binary -> send fr *)
-
-(*       | _ -> *)
-(*         send @@ Frame.close 1002 >>= fun () -> *)
-(*         Lwt.fail Exit *)
-(*     in *)
-(*     let rec react_forever () = recv () >>= react >>= react_forever *)
-(*     in *)
-(*     react_forever () *)
-(*   in *)
-(*   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp -> *)
-(*   Conduit_lwt_unix.(endp_to_server ~ctx:default_ctx endp >>= fun server -> *)
-(*   establish_server ~ctx:default_ctx ~mode:server echo_fun) *)
+let server uri =
+  let port = Option.value_exn
+      ~message:"no port inferred from scheme"
+      Uri_services.(tcp_port_of_uri uri)
+  in
+  Tcp.Server.create (Tcp.on_port port) begin fun addr reader writer ->
+    let addr_str = Socket.Address.(to_string addr) in
+    info "Client connection from %s" addr_str;
+    let app_to_ws, sender_write = Pipe.create () in
+    let receiver_read, ws_to_app = Pipe.create () in
+    let inet_addr = match addr with `Inet _ as a -> a in
+    let finished = server
+        ~log:Lazy.(force log) ~app_to_ws ~ws_to_app ~reader ~writer inet_addr
+    in
+    let send = Pipe.write sender_write in
+    let rec loop () =
+      Pipe.read receiver_read >>= function
+      | `Eof ->
+        info "Client %s disconnected" addr_str;
+        Deferred.unit
+      | `Ok ({ opcode; extension; final; content } as frame) ->
+        let open Frame in
+        debug "<- %s" Frame.(show frame);
+        let frame' =
+          match opcode with
+          | Opcode.Ping -> Some Frame.(create ~opcode:Opcode.Pong ~content ())
+          | Opcode.Close ->
+            (* Immediately echo and pass this last message to the user *)
+            if String.length content >= 2 then
+              Some Frame.(create ~opcode:Opcode.Close
+                            ~content:(String.sub content 0 2) ())
+            else
+              Some Frame.(close 100)
+          | Opcode.Pong -> None
+          | Opcode.Text
+          | Opcode.Binary -> Some frame
+          | _ -> Some Frame.(close 1002)
+        in
+        match frame' with
+        | None ->
+          loop ()
+        | Some frame' ->
+          debug "-> %s" Frame.(show frame');
+          send frame' >>=
+          loop
+    in
+    Deferred.any [loop (); finished]
+  end >>| ignore
 
 let command =
   let spec =
     let open Command.Spec in
     empty
     +> flag "-loglevel" (optional int) ~doc:"1-3 loglevel"
+    +> flag "-s" no_arg ~doc:" Run as server (default: no)"
     +> anon ("url" %: string)
   in
   let set_loglevel = function
@@ -78,10 +95,10 @@ let command =
     | 3 -> set_level `Debug
     | _ -> ()
   in
-  let run loglevel url =
+  let run loglevel is_server url =
     Option.iter loglevel ~f:set_loglevel;
     Nocrypto_entropy_unix.initialize ();
-    don't_wait_for @@ client @@ Uri.of_string url;
+    don't_wait_for @@ (if is_server then server else client) @@ Uri.of_string url;
     never_returns @@ Scheduler.go ()
   in
   Command.basic ~summary:"telnet-like interface to Websockets" spec run

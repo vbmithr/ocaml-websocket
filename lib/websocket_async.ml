@@ -10,6 +10,11 @@ open Async_IO
 module Request_async = Request.Make(Cohttp_async_io)
 module Response_async = Response.Make(Cohttp_async_io)
 
+let set_tcp_nodelay writer =
+  let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
+  Socket.setopt socket Socket.Opt.nodelay true
+
+
 let debug log =
   Printf.ksprintf
     (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg))
@@ -65,13 +70,12 @@ let client
       if Pipe.is_closed ws_to_app then
         Deferred.unit
       else
-        try_with
-          (fun () -> read_frame () >>= function
-             | `Error msg -> failwith msg
-             | `Ok fr ->
-               Pipe.write ws_to_app fr >>| fun () ->
-               debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
-          ) >>= function
+        try_with begin
+          fun () -> read_frame () >>= function
+            | `Error msg -> failwith msg
+            | `Ok fr ->
+              Pipe.write ws_to_app fr
+        end >>= function
         | Ok () -> forward_frames_to_app ws_to_app
         | Error exn ->
           debug log "%s" Exn.(to_string exn);
@@ -84,7 +88,6 @@ let client
            Buffer.clear buf;
            write_frame_to_buf ?g ~masked:true buf fr;
            let contents = Buffer.contents buf in
-           debug log "app -> net: %S" contents;
            Writer.write ws_to_net contents
         )
     in
@@ -121,12 +124,14 @@ let client_ez
     after heartbeat >>= fun () ->
     if Pipe.is_closed w then
       Deferred.unit
-    else
-      Pipe.write w @@ Frame.create
-        ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
+    else begin
       debug log "-> PING";
+      Pipe.write w @@ Frame.create
+        ~opcode:Opcode.Ping
+        ~content:Time_ns.(now () |> to_string_fix_proto `Utc) () >>= fun () ->
       don't_wait_for @@ watch w;
       keepalive w
+    end
   in
   let react w fr =
     debug log "<- %s" Frame.(show fr);
@@ -214,18 +219,19 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
     Response_async.write (fun writer -> Deferred.unit) response w
   in
   server_fun address reader writer >>= fun () ->
+  set_tcp_nodelay writer;
   let read_frame = make_read_frame ?g ~masked:true (reader, writer) in
-  let run () =
-    read_frame () >>= function
-    | `Error msg -> failwith msg
-    | `Ok fr -> Pipe.write ws_to_app fr
-  in
   let rec loop () =
-    try_with ~name:"server" run >>= function
-    | Ok () -> loop ()
+    read_frame () >>= function
+    | `Error "EOF" -> Deferred.unit
+    | `Error msg -> failwith msg
+    | `Ok fr -> Pipe.write ws_to_app fr >>= loop
+  in
+  let run () =
+    try_with ~name:"server" loop >>| function
+    | Ok () -> ()
     | Error exn ->
-      debug log "%s" Exn.(to_string exn);
-      loop ()
+      debug log "exception in server loop: %s" Exn.(to_string exn)
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
@@ -235,4 +241,4 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
        Buffer.contents buf
     )
   in
-  Deferred.any [transfer_end; loop (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+  Deferred.any [transfer_end; run (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
