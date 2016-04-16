@@ -70,13 +70,12 @@ let client
       if Pipe.is_closed ws_to_app then
         Deferred.unit
       else
-        try_with
-          (fun () -> read_frame () >>= function
-             | `Error msg -> failwith msg
-             | `Ok fr ->
-               Pipe.write ws_to_app fr >>| fun () ->
-               debug log "net -> app (%d bytes)" String.(length fr.Frame.content);
-          ) >>= function
+        try_with begin
+          fun () -> read_frame () >>= function
+            | `Error msg -> failwith msg
+            | `Ok fr ->
+              Pipe.write ws_to_app fr
+        end >>= function
         | Ok () -> forward_frames_to_app ws_to_app
         | Error exn ->
           debug log "%s" Exn.(to_string exn);
@@ -89,7 +88,6 @@ let client
            Buffer.clear buf;
            write_frame_to_buf ?g ~masked:true buf fr;
            let contents = Buffer.contents buf in
-           debug log "app -> net: %S" contents;
            Writer.write ws_to_net contents
         )
     in
@@ -126,12 +124,14 @@ let client_ez
     after heartbeat >>= fun () ->
     if Pipe.is_closed w then
       Deferred.unit
-    else
-      Pipe.write w @@ Frame.create
-        ~opcode:Opcode.Ping ~content:Time.(now () |> to_string) () >>= fun () ->
+    else begin
       debug log "-> PING";
+      Pipe.write w @@ Frame.create
+        ~opcode:Opcode.Ping
+        ~content:Time_ns.(now () |> to_string_fix_proto `Utc) () >>= fun () ->
       don't_wait_for @@ watch w;
       keepalive w
+    end
   in
   let react w fr =
     debug log "<- %s" Frame.(show fr);
