@@ -48,21 +48,23 @@ let server uri =
       Lwt_log.debug_f ~section "Client %d: %s" id Frame.(show fr) >>= fun () ->
       match fr.opcode with
       | Opcode.Ping ->
-          send @@
-          Frame.create ~opcode:Opcode.Pong ~content:fr.content () >>= fun () ->
-          (* Immediately echo and pass this last message to the user *)
-          if String.length fr.content >= 2 then
-            send @@ Frame.create ~opcode:Opcode.Close
-              ~content:(String.sub fr.content 0 2) () >>= react
-          else
-            send @@ Frame.close 1000
-      | Opcode.Pong -> react ()
-
+        send Frame.(create ~opcode:Opcode.Pong ~content:fr.content ()) >>=
+        react
+      | Opcode.Close ->
+        (* Immediately echo and pass this last message to the user *)
+        if String.length fr.content >= 2 then
+          let content = String.sub fr.content 0 2 in
+          send Frame.(create ~opcode:Opcode.Close ~content ())
+        else
+          send @@ Frame.close 1000
+      | Opcode.Pong ->
+        react ()
       | Opcode.Text
       | Opcode.Binary ->
-          send fr >>= react
+        send fr >>=
+        react
       | _ ->
-          send @@ Frame.close 1002
+        send Frame.(close 1002)
     in
     Lwt_log.info_f ~section "Connection from client id %d" id >>= fun () ->
     try%lwt react () with exn ->
@@ -80,15 +82,18 @@ let main is_server uri =
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
   else client uri
 
+let apply_loglevel = function
+  | 2 -> Lwt_log.(add_rule "*" Info)
+  | 3 -> Lwt_log.(add_rule "*" Debug)
+  | _ -> ()
+
 let _ =
   let uri = ref "" in
   let server = ref false in
 
   let speclist = Arg.align
-      [
-        "-s", Arg.Set server, " Run as server";
-        "-v", Arg.String (fun s -> Lwt_log.(add_rule s Info)), "<section> Put <section> to Info level";
-        "-vv", Arg.String (fun s -> Lwt_log.(add_rule s Debug)), "<section> Put <section> to Debug level"
+      [ "-s", Arg.Set server, " Run as server";
+        "-loglevel", Arg.Int apply_loglevel, "1-3 Set loglevel";
       ]
   in
   let anon_fun s = uri := s in
