@@ -1,4 +1,4 @@
-true: bin_annot, debug, safe_string, warn(-40)
+true: bin_annot, debug, safe_string, warn(-40), warn_error(+8)
 
 <lib>: include
 <tests>: include

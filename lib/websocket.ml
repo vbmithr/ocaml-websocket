@@ -174,7 +174,7 @@ module IO(IO: Cohttp.S.IO) = struct
     in
     fun () ->
       read ic 2 >>= fun hdr ->
-      if hdr = "" then return (`Error "EOF")
+      if hdr = "" then return `Eof
       else
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in

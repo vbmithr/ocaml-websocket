@@ -64,6 +64,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ?g ~ctx client uri 
        read_frame () >>= function
        | `Ok frame -> Lwt.return frame
        | `Error msg -> Lwt.fail_with msg
+       | `Eof -> Lwt.fail_with "EOF"
      with exn -> Lwt.fail exn),
   (fun frame ->
      try%lwt
@@ -121,6 +122,7 @@ let establish_server ?timeout ?stop ?g ~ctx ~mode react =
       read_frame () >>= function
       | `Ok frame -> Lwt.return frame
       | `Error msg -> Lwt.fail_with msg
+      | `Eof  -> Lwt.fail_with "EOF"
     in
     react id request read_frame send_frame
   in

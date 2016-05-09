@@ -18,6 +18,7 @@ let read_frames ?g icoc handler_fn =
       match%lwt rf with
       | `Ok frame -> Lwt.return frame
       | `Error msg -> Lwt.fail_with msg
+      | `Eof -> Lwt.fail_with "EOF"
     in
     while%lwt true do
       read_frame () >>= Lwt.wrap1 handler_fn
