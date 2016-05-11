@@ -15,11 +15,6 @@
  *
  *)
 
-let random_string ?(base64=false) ?g size =
-  Nocrypto.Rng.generate ?g size |>
-  (if base64 then Nocrypto.Base64.encode else fun s -> s) |>
-  Cstruct.to_string
-
 let b64_encoded_sha1sum s =
   let open Nocrypto in
   Cstruct.of_string s |>
@@ -132,10 +127,10 @@ module IO(IO: Cohttp.S.IO) = struct
       return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
     else return None
 
-  let write_frame_to_buf ?g ~masked buf fr =
+  let write_frame_to_buf ?(g=Rng.std) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
-    let mask = random_string ?g 4 in
+    let mask = g 4 in
     let content = Bytes.unsafe_of_string fr.content in
     let len = Bytes.length content in
     let opcode = Opcode.to_enum fr.opcode in

@@ -13,10 +13,11 @@ let set_tcp_nodelay flow =
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
-let with_connection ?(extra_headers = Cohttp.Header.init ()) ?g ~ctx client uri =
+let with_connection ?(extra_headers = Cohttp.Header.init ())
+  ?(g=Rng.std) ~ctx client uri =
   let connect () =
     let module C = Cohttp in
-    let nonce = random_string ?g ~base64:true 16 in
+    let nonce = g ~base64:true 16 in
     let headers = C.Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
@@ -57,7 +58,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ?g ~ctx client uri 
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ?g ~masked:true (ic, oc) in
+  let read_frame = make_read_frame ~g ~masked:true (ic, oc) in
   let buf = Buffer.create 128 in
   (fun () ->
      try%lwt
@@ -68,7 +69,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ()) ?g ~ctx client uri 
   (fun frame ->
      try%lwt
        Buffer.clear buf;
-       write_frame_to_buf ?g ~masked:true buf frame;
+       write_frame_to_buf ~g ~masked:true buf frame;
        Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 

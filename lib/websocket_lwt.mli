@@ -30,7 +30,7 @@ module Frame : module type of Websocket.Frame
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
-  ?g:Nocrypto.Rng.g ->
+  ?g:Rng.t ->
   ctx:Conduit_lwt_unix.ctx ->
   Conduit_lwt_unix.client ->
   Uri.t ->
@@ -39,7 +39,7 @@ val with_connection :
 val establish_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?g:Nocrypto.Rng.g ->
+  ?g:Rng.t ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
@@ -57,7 +57,7 @@ val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
 val establish_standard_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?g:Nocrypto.Rng.g ->
+  ?g:Rng.t ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
