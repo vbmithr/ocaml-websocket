@@ -4,9 +4,36 @@
 
 let lwt = Env.bool "lwt"
 let async = Env.bool "async"
+let nocrypto = Env.bool "nocrypto"
+let cryptokit = Env.bool "cryptokit"
+
+let ocamlbuild = "ocamlbuild -use-ocamlfind -classic-display -plugin-tag 'package(cppo_ocamlbuild)'"
+
+
+let setup_ocamlbuild () =
+  let acc present pkg list = if present then pkg::list else list in
+
+  (* add cryptokit universally if applicable *)
+  let ocamlbuild = if cryptokit
+    then ocamlbuild ^ " -tag-line '<{lib,tests}/*>:package(cryptokit)'"
+    else ocamlbuild
+  in
+
+  let tag = ["package(base64)"] in
+
+  let ocamlbuild =
+    acc nocrypto "cppo_D(NOCRYPTO)" tag |>
+    acc cryptokit "cppo_D(CRYPTOKIT)" |>
+    String.concat "," |>
+    Printf.sprintf "<lib/rng.ml*>:%s" |>
+    Printf.sprintf "%s -tag-line '%s'" ocamlbuild
+  in
+
+  ocamlbuild
 
 let () =
-  Pkg.describe "websocket" ~builder:`OCamlbuild [
+  let ocamlbuild = setup_ocamlbuild () in
+  Pkg.describe "websocket" ~builder:(`Other (ocamlbuild, "_build")) [
     Pkg.lib "pkg/META";
     Pkg.lib ~exts:Exts.library "lib/websocket";
     Pkg.lib ~exts:Exts.module_library "lib/rng";

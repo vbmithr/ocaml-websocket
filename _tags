@@ -9,8 +9,6 @@ true: bin_annot, debug, safe_string, warn(-40)
                    package(containers), \
                    package(nocrypto)
 
-<lib/rng.ml*>: package(base64)
-
 <lib/websocket_lwt.*>: package(lwt), \
                        package(lwt.ppx), \
                        package(uri), \
