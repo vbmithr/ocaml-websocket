@@ -14,7 +14,7 @@ let set_tcp_nodelay flow =
   | _ -> ()
 
 let with_connection ?(extra_headers = Cohttp.Header.init ())
-  ?(random_string=Rng.std) ~ctx client uri =
+  ?(random_string=Rng.std ~initialize:true) ~ctx client uri =
   let connect () =
     let module C = Cohttp in
     let nonce = random_string ~base64:true 16 in

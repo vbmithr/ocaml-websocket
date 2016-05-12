@@ -1,6 +1,6 @@
 type t = ?base64:bool -> int -> string
 
-val std : t
+val std : ?initialize:bool -> t
 
 #ifdef NOCRYPTO
 val nocrypto : ?g:Nocrypto.Rng.g -> t
