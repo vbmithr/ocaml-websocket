@@ -29,6 +29,13 @@ let setup_ocamlbuild () =
     Printf.sprintf "%s -tag-line '%s'" ocamlbuild
   in
 
+  let ocamlbuild =
+    acc nocrypto "package(nocrypto.unix),cppo_D(NOCRYPTO)" tag |>
+    acc cryptokit "cppo_D(CRYPTOKIT)" |>
+    String.concat "," |>
+    Printf.sprintf "<tests/randomstring.*>:%s" |>
+    Printf.sprintf "%s -tag-line '%s'" ocamlbuild in
+
   ocamlbuild
 
 let () =
@@ -43,4 +50,5 @@ let () =
     Pkg.bin ~cond:async ~auto:true "tests/wscat_async";
     Pkg.bin ~cond:lwt ~auto:true "tests/reynir";
     Pkg.bin ~cond:lwt ~auto:true "tests/upgrade_connection";
+    Pkg.bin ~auto:true "tests/randomstring";
   ]
