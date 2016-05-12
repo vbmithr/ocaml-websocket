@@ -97,7 +97,6 @@ let command =
   in
   let run loglevel is_server url =
     Option.iter loglevel ~f:set_loglevel;
-    Nocrypto_entropy_unix.initialize ();
     don't_wait_for @@ (if is_server then server else client) @@ Uri.of_string url;
     never_returns @@ Scheduler.go ()
   in

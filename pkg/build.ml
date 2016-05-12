@@ -19,6 +19,11 @@ let setup_ocamlbuild () =
     else ocamlbuild
   in
 
+  let ocamlbuild = if nocrypto
+    then ocamlbuild ^ " -tag-line '<{lib,tests}/*>:package(nocrypto)'"
+    else ocamlbuild
+  in
+
   let tag = ["package(base64)"] in
 
   let ocamlbuild =

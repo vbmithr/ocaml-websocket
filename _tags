@@ -7,7 +7,7 @@ true: bin_annot, debug, safe_string, warn(-40)
 <lib/websocket.*>: package(ppx_deriving.std), \
                    package(cohttp), \
                    package(containers), \
-                   package(nocrypto)
+                   package(ocplib-endian)
 
 <lib/websocket_lwt.*>: package(lwt), \
                        package(lwt.ppx), \
@@ -15,7 +15,6 @@ true: bin_annot, debug, safe_string, warn(-40)
                        package(cohttp.lwt), \
                        package(ppx_deriving.std), \
                        package(containers), \
-                       package(nocrypto.lwt), \
                        package(conduit)
 
 <lib/websocket_cohttp_lwt.*>: package(lwt), \
@@ -23,15 +22,13 @@ true: bin_annot, debug, safe_string, warn(-40)
                               package(uri), \
                               package(cohttp.lwt), \
                               package(containers), \
-                              package(conduit), \
-                              package(nocrypto)
+                              package(conduit)
 
 <lib/websocket_async.*>: package(async), \
                        package(uri), \
                        package(cohttp.async), \
                        package(ppx_deriving.std), \
                        package(containers), \
-                       package(nocrypto), \
                        package(conduit), \
                        thread
 
@@ -41,7 +38,6 @@ true: bin_annot, debug, safe_string, warn(-40)
              package(cohttp.lwt), \
              package(ppx_deriving.std), \
              package(containers), \
-             package(nocrypto.lwt), \
              package(conduit)
 
 <tests/wscat_async.*>: package(core), \
@@ -50,7 +46,6 @@ true: bin_annot, debug, safe_string, warn(-40)
                        thread, \
                        package(uri), \
                        package(cohttp.async), \
-                       package(nocrypto.unix), \
                        package(containers)
 
 <tests/upgrade_connection.*>: \
@@ -60,5 +55,4 @@ true: bin_annot, debug, safe_string, warn(-40)
     package(conduit), \
     package(lwt), \
     package(lwt.ppx), \
-    package(nocrypto.lwt), \
     package(ppx_deriving)
