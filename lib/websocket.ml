@@ -127,10 +127,10 @@ module IO(IO: Cohttp.S.IO) = struct
       return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
     else return None
 
-  let write_frame_to_buf ?(g=Rng.std) ~masked buf fr =
+  let write_frame_to_buf ?(random_string=Rng.std) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
-    let mask = g 4 in
+    let mask = random_string 4 in
     let content = Bytes.unsafe_of_string fr.content in
     let len = Bytes.length content in
     let opcode = Opcode.to_enum fr.opcode in
@@ -159,12 +159,12 @@ module IO(IO: Cohttp.S.IO) = struct
       );
     Buffer.add_bytes buf content
 
-  let make_read_frame ?g ~masked (ic,oc) =
+  let make_read_frame ?random_string ~masked (ic,oc) =
     let buf = Buffer.create 4096 in
     let open Frame in
     let close_with_code code =
       Buffer.clear buf;
-      write_frame_to_buf ?g ~masked buf @@ Frame.close code;
+      write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;
       write oc @@ Buffer.contents buf
     in
     fun () ->
