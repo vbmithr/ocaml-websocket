@@ -1,6 +1,6 @@
 PKG=websocket
 PREFIX=`opam config var prefix`
-BUILDOPTS=native=true native-dynlink=true lwt=true async=false nocrypto=true cryptokit=true
+BUILDOPTS=native=true native-dynlink=true lwt=true async=true nocrypto=true cryptokit=true
 
 all: build
 
