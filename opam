@@ -16,6 +16,7 @@ build: [
                           "native-dynlink=%{ocaml-native-dynlink}%"
                           "lwt=%{lwt:installed}%"
                           "async=%{async:installed}%"
+                          "async_ssl=%{async_ssl:installed}%"
                           "nocrypto=%{nocrypto:installed}%"
                           "cryptokit=%{cryptokit:installed}%"
   ]
@@ -29,7 +30,7 @@ depends: [
   "conduit" {>= "0.8.3"}
 ]
 
-depopts: ["async" "lwt" "nocrypto" "cryptokit"]
+depopts: ["async" "async_ssl" {test} "lwt" "nocrypto" "cryptokit"]
 conflicts: [
   "lwt" {< "2.4.8"}
   "async" {< "112.35.00"}

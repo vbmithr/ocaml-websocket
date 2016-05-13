@@ -4,6 +4,7 @@
 
 let lwt = Env.bool "lwt"
 let async = Env.bool "async"
+let async_ssl = Env.bool "async_ssl"
 let nocrypto = Env.bool "nocrypto"
 let cryptokit = Env.bool "cryptokit"
 
@@ -52,7 +53,7 @@ let () =
     Pkg.lib ~cond:lwt ~exts:Exts.module_library "lib/websocket_lwt";
     Pkg.lib ~cond:async ~exts:Exts.module_library "lib/websocket_async";
     Pkg.bin ~cond:lwt ~auto:true "tests/wscat";
-    Pkg.bin ~cond:async ~auto:true "tests/wscat_async";
+    Pkg.bin ~cond:(async && async_ssl) ~auto:true "tests/wscat_async";
     Pkg.bin ~cond:lwt ~auto:true "tests/reynir";
     Pkg.bin ~cond:lwt ~auto:true "tests/upgrade_connection";
     Pkg.bin ~auto:true "tests/randomstring";
