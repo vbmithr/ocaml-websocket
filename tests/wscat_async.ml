@@ -53,31 +53,34 @@ let server uri =
       | `Eof ->
         info "Client %s disconnected" addr_str;
         Deferred.unit
-      | `Ok ({ opcode; extension; final; content } as frame) ->
+      | `Ok ({ Frame.opcode; extension; final; content } as frame) ->
         let open Frame in
         debug "<- %s" Frame.(show frame);
-        let frame' =
+        let frame', closed =
           match opcode with
-          | Opcode.Ping -> Some Frame.(create ~opcode:Opcode.Pong ~content ())
+          | Opcode.Ping -> Some Frame.(create ~opcode:Opcode.Pong ~content ()), false
           | Opcode.Close ->
             (* Immediately echo and pass this last message to the user *)
             if String.length content >= 2 then
               Some Frame.(create ~opcode:Opcode.Close
-                            ~content:(String.sub content 0 2) ())
+                            ~content:(String.sub content 0 2) ()), true
             else
-              Some Frame.(close 100)
-          | Opcode.Pong -> None
+              Some Frame.(close 100), true
+          | Opcode.Pong -> None, false
           | Opcode.Text
-          | Opcode.Binary -> Some frame
-          | _ -> Some Frame.(close 1002)
+          | Opcode.Binary -> Some frame, false
+          | _ -> Some Frame.(close 1002), false
         in
-        match frame' with
-        | None ->
-          loop ()
-        | Some frame' ->
-          debug "-> %s" Frame.(show frame');
-          send frame' >>=
-          loop
+        begin
+          match frame' with
+          | None ->
+            Deferred.unit
+          | Some frame' ->
+            debug "-> %s" Frame.(show frame');
+            send frame'
+        end >>= fun () ->
+        if closed then Deferred.unit
+        else loop ()
     in
     Deferred.any [loop (); finished]
   end >>| ignore

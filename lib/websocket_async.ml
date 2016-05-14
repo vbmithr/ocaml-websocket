@@ -73,6 +73,7 @@ let client
         try_with begin
           fun () -> read_frame () >>= function
             | `Error msg -> failwith msg
+            | `Eof -> failwith "EOF"
             | `Ok fr ->
               Pipe.write ws_to_app fr
         end >>= function
@@ -223,7 +224,7 @@ let server ?log ?(name="") ?g ~app_to_ws ~ws_to_app ~reader ~writer address =
   let read_frame = make_read_frame ?g ~masked:true (reader, writer) in
   let rec loop () =
     read_frame () >>= function
-    | `Error "EOF" -> Deferred.unit
+    | `Eof -> Deferred.unit
     | `Error msg -> failwith msg
     | `Ok fr -> Pipe.write ws_to_app fr >>= loop
   in
