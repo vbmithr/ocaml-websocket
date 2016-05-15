@@ -1,5 +1,5 @@
 val upgrade_connection:
-  ?g:Nocrypto.Rng.g ->
+  ?random_string:Rng.t ->
   Cohttp.Request.t ->
   Conduit_lwt_unix.flow ->
   (Websocket.Frame.t -> unit) ->

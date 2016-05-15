@@ -16,21 +16,25 @@ build: [
                           "native-dynlink=%{ocaml-native-dynlink}%"
                           "lwt=%{lwt:installed}%"
                           "async=%{async:installed}%"
+                          "async_ssl=%{async_ssl:installed}%"
+                          "nocrypto=%{nocrypto:installed}%"
+                          "cryptokit=%{cryptokit:installed}%"
   ]
 ]
 depends: [
+  "cppo" {build}
   "containers" {>= "0.10"}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}
   "ppx_deriving" {>= "2.0"}
-  "nocrypto" {>= "0.5.0"}
   "conduit" {>= "0.8.3"}
 ]
 
-depopts: ["async" "lwt"]
+depopts: ["async" "async_ssl" {test} "lwt" "nocrypto" "cryptokit"]
 conflicts: [
   "lwt" {< "2.4.8"}
   "async" {< "112.35.00"}
+  "nocrypto" {< "0.5.0"}
 ]
 
 available: [ ocaml-version >="4.02.0" ]

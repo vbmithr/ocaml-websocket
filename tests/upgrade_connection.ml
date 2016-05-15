@@ -91,7 +91,6 @@ let start_server host port () =
       (Sexplib.Sexp.to_string_hum (Conduit_lwt_unix.sexp_of_flow ch))
   in
   Lwt_io.eprintf "[SERV] Listening for HTTP on port %d\n%!" port >>= fun () ->
-  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   Cohttp_lwt_unix.Server.create
     ~mode:(`TCP (`Port port))
     (Cohttp_lwt_unix.Server.make ~callback:handler ~conn_closed ())

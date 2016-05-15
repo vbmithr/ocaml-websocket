@@ -1,3 +1,4 @@
+pkg/META
 _build
 *.native
 *.byte

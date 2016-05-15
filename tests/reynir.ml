@@ -54,7 +54,6 @@ let main uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   let open Conduit_lwt_unix in
   endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  Nocrypto_entropy_lwt.initialize () >>= fun () ->
   establish_server ~ctx:default_ctx ~mode:server handler
 
 let () =
