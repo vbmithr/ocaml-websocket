@@ -4,7 +4,7 @@
     built based on the packages available at compile time.
 *)
 
-type t = ?base64:bool -> int -> string
+type t = int -> string
 
 val std : ?initialize:bool -> t
 (** [std] uses the Random module from the stdlib. This is the RNG used by
