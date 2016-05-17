@@ -122,7 +122,7 @@ module IO(IO: Cohttp.S.IO) = struct
       return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
     else return None
 
-  let write_frame_to_buf ?(random_string=Rng.std ~initialize:true) ~masked buf fr =
+  let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
     let mask = random_string 4 in

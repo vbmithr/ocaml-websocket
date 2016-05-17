@@ -31,7 +31,7 @@ let client
     ?log
     ?(name="")
     ?(extra_headers = Header.init ())
-    ?(random_string = Rng.std ~initialize:true)
+    ?(random_string = Rng.std ?state:None)
     ?initialized
     ~app_to_ws
     ~ws_to_app
