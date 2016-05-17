@@ -19,6 +19,7 @@ build: [
                           "async_ssl=%{async_ssl:installed}%"
                           "nocrypto=%{nocrypto:installed}%"
                           "cryptokit=%{cryptokit:installed}%"
+                          "test=false"
   ]
 ]
 depends: [
@@ -30,11 +31,11 @@ depends: [
   "conduit" {>= "0.8.3"}
 ]
 
-depopts: ["async" "async_ssl" {test} "lwt" "nocrypto" "cryptokit"]
+depopts: ["async" "async_ssl" "lwt" "nocrypto" "cryptokit"]
 conflicts: [
   "lwt" {< "2.4.8"}
   "async" {< "112.35.00"}
   "nocrypto" {< "0.5.0"}
 ]
 
-available: [ ocaml-version >="4.02.0" ]
+available: [ ocaml-version >="4.03.0" ]
