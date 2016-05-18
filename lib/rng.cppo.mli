@@ -4,13 +4,11 @@
     built based on the packages available at compile time.
 *)
 
-type t = ?base64:bool -> int -> string
+type t = int -> string
 
-val std : ?initialize:bool -> t
-(** [std] uses the Random module from the stdlib. This is the RNG used by
-    default, and the RNG is re-initialized each time by default, which is a
-    side-effecting operation. To preserve purity, pass in [~initialize:false]
-    when establishing the client or server. *)
+val std : ?state:Random.State.t -> t
+(** [std] uses the Random module from the stdlib. If no state is passed in,
+    then the default state is re-initialized and used. *)
 
 #ifdef NOCRYPTO
 val nocrypto : ?g:Nocrypto.Rng.g -> t

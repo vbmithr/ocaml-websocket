@@ -31,7 +31,7 @@ let client
     ?log
     ?(name="")
     ?(extra_headers = Header.init ())
-    ?(random_string = Rng.std ~initialize:true)
+    ?(random_string = Rng.std ?state:None)
     ?initialized
     ~app_to_ws
     ~ws_to_app
@@ -39,7 +39,7 @@ let client
     ~ws_to_net
     uri =
   let drain_handshake r w =
-    let nonce = random_string ~base64:true 16 in
+    let nonce = random_string |> B64.encode ~pad:true in
     let headers = Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
