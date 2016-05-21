@@ -39,7 +39,7 @@ let client
     ~ws_to_net
     uri =
   let drain_handshake r w =
-    let nonce = random_string |> B64.encode ~pad:true in
+    let nonce = random_string 16 |> B64.encode ~pad:true in
     let headers = Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";
