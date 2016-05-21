@@ -29,7 +29,7 @@ let error log =
 
 let client
     ?log
-    ?(name="")
+    ?(name="client")
     ?(extra_headers = Header.init ())
     ?(random_string = Rng.std ?state:None)
     ?initialized
@@ -46,11 +46,13 @@ let client
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
+    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
     Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
     Response_async.read r >>| function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
+        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
         let status = Response.status response in
         let headers = Response.headers response in
         if Code.(is_error @@ code_of_status status) then failwith @@ "HTTP Error " ^ Code.(string_of_status status)
@@ -97,7 +99,7 @@ let client
       forward_frames_to_net ws_to_net app_to_ws;
     ]
   in
-  try_with ~name:"client" run >>| function
+  try_with ~name run >>| function
   | Ok () ->
     Pipe.close_read app_to_ws;
     Pipe.close ws_to_app
@@ -108,6 +110,8 @@ let client
 
 let client_ez
     ?log
+    ?(name="client_ez")
+    ?extra_headers
     ?(wait_for_pong=Time.Span.of_sec 5.)
     ?(heartbeat=Time.Span.zero)
     ?random_string
@@ -171,8 +175,8 @@ let client_ez
     ]
   end;
   don't_wait_for begin
-    try_with ~extract_exn:true ~name:"client_ez"
-      (fun () -> client ?log ?random_string ~initialized ~app_to_ws
+    try_with ~extract_exn:true ~name
+      (fun () -> client ?extra_headers ?log ?random_string ~initialized ~app_to_ws
           ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri)
     >>| function
     | Ok () ->
@@ -185,7 +189,7 @@ let client_ez
   end;
   client_read, client_write
 
-let server ?log ?(name="") ?random_string ~app_to_ws ~ws_to_app ~reader ~writer address =
+let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~writer address =
   let server_fun address r w =
     (Request_async.read r >>| function
       | `Ok r -> r
@@ -229,7 +233,7 @@ let server ?log ?(name="") ?random_string ~app_to_ws ~ws_to_app ~reader ~writer 
     | `Ok fr -> Pipe.write ws_to_app fr >>= loop
   in
   let run () =
-    try_with ~name:"server" loop >>| function
+    try_with ~name loop >>| function
     | Ok () -> ()
     | Error exn ->
       debug log "exception in server loop: %s" Exn.(to_string exn)

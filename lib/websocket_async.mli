@@ -44,6 +44,8 @@ val client :
 
 val client_ez :
   ?log:Log.t ->
+  ?name:string ->
+  ?extra_headers:Cohttp.Header.t ->
   ?wait_for_pong:Time.Span.t ->
   ?heartbeat:Time.Span.t ->
   ?random_string:Rng.t ->

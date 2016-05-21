@@ -4,7 +4,7 @@ open Log.Global
 
 open Websocket_async
 
-let client uri =
+let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
   let port = Option.value_exn ~message:"no port inferred from scheme"
       Uri_services.(tcp_port_of_uri uri) in
@@ -24,7 +24,16 @@ let client uri =
     (if scheme = "https" || scheme = "wss"
      then Conduit_async_ssl.ssl_connect r w
      else return (r, w)) >>= fun (r, w) ->
+    let module C = Cohttp in
+    let extra_headers = C.Header.init () in
+    let extra_headers = Option.value_map protocol ~default:extra_headers
+        ~f:(fun proto -> C.Header.add extra_headers "Sec-Websocket-Protocol" proto)
+    in
+    let extra_headers = Option.value_map extensions ~default:extra_headers
+        ~f:(fun exts -> C.Header.add extra_headers "Sec-Websocket-Extensions" exts)
+    in
     let r, w = client_ez
+        ~extra_headers
         ~log:Lazy.(force log)
         ~heartbeat:Time.Span.(of_sec 5.) uri s r w
     in
@@ -89,6 +98,8 @@ let command =
   let spec =
     let open Command.Spec in
     empty
+    +> flag "-protocol" (optional string) ~doc:"websocket protocol header"
+    +> flag "-extensions" (optional string) ~doc:"websocket extensions header"
     +> flag "-loglevel" (optional int) ~doc:"1-3 loglevel"
     +> flag "-s" no_arg ~doc:" Run as server (default: no)"
     +> anon ("url" %: string)
@@ -98,9 +109,10 @@ let command =
     | 3 -> set_level `Debug
     | _ -> ()
   in
-  let run loglevel is_server url =
+  let run protocol extension loglevel is_server url =
     Option.iter loglevel ~f:set_loglevel;
-    don't_wait_for @@ (if is_server then server else client) @@ Uri.of_string url;
+    let url = Uri.of_string url in
+    don't_wait_for @@ if is_server then server url else client protocol extension url;
     never_returns @@ Scheduler.go ()
   in
   Command.basic ~summary:"telnet-like interface to Websockets" spec run
