@@ -98,8 +98,8 @@ let command =
   let spec =
     let open Command.Spec in
     empty
-    +> flag "-protocol" (optional string) ~doc:"websocket protocol header"
-    +> flag "-extensions" (optional string) ~doc:"websocket extensions header"
+    +> flag "-protocol" (optional string) ~doc:"str websocket protocol header"
+    +> flag "-extensions" (optional string) ~doc:"str websocket extensions header"
     +> flag "-loglevel" (optional int) ~doc:"1-3 loglevel"
     +> flag "-s" no_arg ~doc:" Run as server (default: no)"
     +> anon ("url" %: string)
