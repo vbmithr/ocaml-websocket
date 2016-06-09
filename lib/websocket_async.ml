@@ -14,18 +14,9 @@ let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
   Socket.setopt socket Socket.Opt.nodelay true
 
-
-let debug log =
-  Printf.ksprintf
-    (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg))
-
-let info log =
-  Printf.ksprintf
-    (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg))
-
-let error log =
-  Printf.ksprintf
-    (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg))
+let debug log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg)) k
+let info log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg)) k
+let error log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg)) k
 
 let client
     ?log
@@ -48,19 +39,23 @@ let client
     let req = Request.make ~headers uri in
     Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
     Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
-    Response_async.read r >>| function
+    Response_async.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
-        let status = Response.status response in
-        let headers = Response.headers response in
-        if Code.(is_error @@ code_of_status status) then failwith @@ "HTTP Error " ^ Code.(string_of_status status)
-        else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
-        else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
-        else if CCOpt.map String.lowercase Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
-        else if not @@ upgrade_present headers then failwith "update not present"
-        else if Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
+      Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
+      let status = Response.status response in
+      let headers = Response.headers response in
+      if Code.(is_error @@ code_of_status status) then
+        Reader.contents r >>= fun msg ->
+        Option.iter log ~f:(fun log -> Log.error log "%s" msg);
+        failwith @@ "HTTP Error " ^ Code.(string_of_status status)
+      else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
+      else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
+      else if CCOpt.map String.lowercase Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
+      else if not @@ upgrade_present headers then failwith "update not present"
+      else if Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
+      else Deferred.unit
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
@@ -99,14 +94,12 @@ let client
       forward_frames_to_net ws_to_net app_to_ws;
     ]
   in
-  try_with ~name run >>| function
-  | Ok () ->
+  let finally_f () =
     Pipe.close_read app_to_ws;
-    Pipe.close ws_to_app
-  | Error exn ->
-    error log "%s" Exn.(to_string exn);
-    Pipe.close_read app_to_ws;
-    Pipe.close ws_to_app
+    Pipe.close ws_to_app;
+    Deferred.unit
+  in
+  Monitor.try_with_or_error ~name (fun () -> Monitor.protect ~finally:finally_f run)
 
 let client_ez
     ?log
@@ -174,18 +167,14 @@ let client_ez
         Deferred.unit
     ]
   end;
+  let finally_f () =
+    Pipe.close_read to_reactor_write;
+    Pipe.close_read client_read;
+    Deferred.unit
+  in
   don't_wait_for begin
-    try_with ~extract_exn:true ~name
-      (fun () -> client ?extra_headers ?log ?random_string ~initialized ~app_to_ws
-          ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri)
-    >>| function
-    | Ok () ->
-      Pipe.close_read to_reactor_write;
-      Pipe.close_read client_read
-    | Error exn ->
-      error log "%s" Exn.(to_string exn);
-      Pipe.close_read to_reactor_write;
-      Pipe.close_read client_read
+    Monitor.protect ~finally:finally_f
+      (fun () -> client ?extra_headers ?log ?random_string ~initialized ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri) |> Deferred.ignore
   end;
   client_read, client_write
 

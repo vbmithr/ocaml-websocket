@@ -40,7 +40,7 @@ val client :
   net_to_ws:Reader.t ->
   ws_to_net:Writer.t ->
   Uri.t ->
-  unit Deferred.t
+  unit Deferred.Or_error.t
 
 val client_ez :
   ?log:Log.t ->
