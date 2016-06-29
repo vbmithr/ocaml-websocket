@@ -14,9 +14,9 @@ let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
   Socket.setopt socket Socket.Opt.nodelay true
 
-let debug log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg)) k
-let info log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg)) k
-let error log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg)) k
+let maybe_debug log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg)) k
+let maybe_info log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg)) k
+let maybe_error log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg)) k
 
 let client
     ?log
@@ -37,18 +37,18 @@ let client
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
-    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
+    maybe_debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req));
     Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
     Response_async.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-      Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
+      maybe_debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response));
       let status = Response.status response in
       let headers = Response.headers response in
       if Code.(is_error @@ code_of_status status) then
         Reader.contents r >>= fun msg ->
-        Option.iter log ~f:(fun log -> Log.error log "%s" msg);
+        maybe_error log "%s" msg;
         failwith @@ "HTTP Error " ^ Code.(string_of_status status)
       else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
       else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
@@ -76,7 +76,7 @@ let client
         end >>= function
         | Ok () -> forward_frames_to_app ws_to_app
         | Error exn ->
-          debug log "%s" Exn.(to_string exn);
+          maybe_debug log "%s" Exn.(to_string exn);
           Deferred.unit
     in
     (* ws_to_net closed <-> app_to_ws closed *)
@@ -123,7 +123,7 @@ let client_ez
     if Pipe.is_closed w then
       Deferred.unit
     else begin
-      debug log "-> PING";
+      maybe_debug log "-> PING";
       Pipe.write w @@ Frame.create
         ~opcode:Opcode.Ping
         ~content:Time_ns.(now () |> to_string_fix_proto `Utc) () >>= fun () ->
@@ -132,7 +132,7 @@ let client_ez
     end
   in
   let react w fr =
-    debug log "<- %s" Frame.(show fr);
+    maybe_debug log "<- %s" Frame.(show fr);
     match fr.opcode with
     | Opcode.Ping ->
         Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
@@ -184,10 +184,10 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
       | `Ok r -> r
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
-        info log "Remote endpoint closed connection";
+        maybe_info log "Remote endpoint closed connection";
         raise End_of_file
       | `Invalid reason ->
-        info log "Invalid input from remote endpoint: %s" reason;
+        maybe_info log "Invalid input from remote endpoint: %s" reason;
         failwith reason) >>= fun request ->
     let meth    = Request.meth request in
     let version = Request.version request in
@@ -225,7 +225,7 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
     try_with ~name loop >>| function
     | Ok () -> ()
     | Error exn ->
-      debug log "exception in server loop: %s" Exn.(to_string exn)
+      maybe_debug log "exception in server loop: %s" Exn.(to_string exn)
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
