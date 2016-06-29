@@ -1,4 +1,6 @@
 include Websocket
+
+open Astring
 open Lwt.Infix
 
 module Lwt_IO = IO(Cohttp_lwt_unix_io)
@@ -40,7 +42,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
       then Lwt.fail @@ HTTP_Error C.Code.(string_of_status status)
       else if not (C.Response.version response = `HTTP_1_1
                    && status = `Switching_protocols
-                   && CCOpt.map String.lowercase_ascii @@
+                   && CCOpt.map String.Ascii.lowercase @@
                    C.Header.get headers "upgrade" = Some "websocket"
                    && upgrade_present headers
                    && C.Header.get headers "sec-websocket-accept" =
@@ -95,7 +97,7 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
     if not (
         version = `HTTP_1_1
         && meth = `GET
-        && CCOpt.map String.lowercase_ascii @@
+        && CCOpt.map String.Ascii.lowercase @@
         C.Header.get headers "upgrade" = Some "websocket"
         && upgrade_present headers
       )
@@ -164,8 +166,9 @@ let establish_standard_server ?timeout ?stop ?random_string ~ctx ~mode react =
       | Frame.Opcode.Close ->
           (* Immediately echo and pass this last message to the user *)
           (if String.length fr.Frame.content >= 2 then
-             send @@ Frame.create ~opcode:Frame.Opcode.Close
-               ~content:(String.sub fr.Frame.content 0 2) ()
+             send @@ Frame.create
+               ~opcode:Frame.Opcode.Close
+               ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
            else send @@ Frame.close 1000
           ) >>= fun () -> Lwt.return fr
 

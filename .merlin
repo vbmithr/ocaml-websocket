@@ -15,3 +15,4 @@ PKG nocrypto
 PKG core
 PKG async
 PKG cohttp.async
+PKG astring

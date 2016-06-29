@@ -15,6 +15,8 @@
  *
  *)
 
+open Astring
+
 let b64_encoded_sha1sum s = Sha1.sha_1 s |> B64.encode ~pad:true
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -89,7 +91,7 @@ end
 
 let xor mask msg =
   for i = 0 to Bytes.length msg - 1 do (* masking msg to send *)
-    Bytes.set msg i Char.(code mask.[i mod 4] lxor code (Bytes.get msg i) |> chr)
+    Bytes.set msg i Char.(to_int mask.[i mod 4] lxor to_int (Bytes.get msg i) |> of_byte)
   done
 
 let is_bit_set idx v =
@@ -102,9 +104,9 @@ let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
 let upgrade_present hs =
   Cohttp.Header.get_multi hs "connection" |> fun hs ->
-  List.map (CCString.Split.list_cpy ~by:",") hs |> fun hs ->
+  List.map (String.cuts ~sep:",") hs |> fun hs ->
   List.flatten hs |> fun hs ->
-  List.map String.(fun h -> h |> lowercase_ascii |> trim) hs |>
+  List.map String.(fun h -> h |> String.Ascii.lowercase |> trim) hs |>
   List.mem "upgrade"
 
 module IO(IO: Cohttp.S.IO) = struct

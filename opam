@@ -29,6 +29,7 @@ depends: [
   "ocplib-endian" {>= "0.8"}
   "ppx_deriving" {>= "2.0"}
   "conduit" {>= "0.8.3"}
+  "astring"
 ]
 
 depopts: ["async" "async_ssl" "lwt" "nocrypto" "cryptokit"]
