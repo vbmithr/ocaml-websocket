@@ -21,8 +21,6 @@ let generate_meta () =
   let async_req = Buffer.create 25 in
   if nocrypto then begin
     Buffer.add_string meta_req  "nocrypto";
-    Buffer.add_string async_req "nocrypto.lwt";
-    Buffer.add_string lwt_req   "nocrypto.unix";
   end;
   if cryptokit then begin
     let reqs = [meta_req; lwt_req; async_req] in

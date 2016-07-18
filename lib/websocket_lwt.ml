@@ -62,13 +62,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
   connect () >|= fun (ic, oc) ->
   let read_frame = make_read_frame ~random_string ~masked:true (ic, oc) in
   let buf = Buffer.create 128 in
-  (fun () ->
-     try%lwt
-       read_frame () >>= function
-       | `Ok frame -> Lwt.return frame
-       | `Error msg -> Lwt.fail_with msg
-       | `Eof -> Lwt.fail_with "EOF"
-     with exn -> Lwt.fail exn),
+  (fun () -> Lwt.catch read_frame (fun exn -> Lwt.fail exn)),
   (fun frame ->
      try%lwt
        Buffer.clear buf;
@@ -121,12 +115,7 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
       Lwt_io.write oc @@ Buffer.contents buf
     in
     let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
-    let read_frame () =
-      read_frame () >>= function
-      | `Ok frame -> Lwt.return frame
-      | `Error msg -> Lwt.fail_with msg
-      | `Eof  -> Lwt.fail_with "EOF"
-    in
+    let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
     react id request read_frame send_frame
   in
   Lwt.async_exception_hook :=

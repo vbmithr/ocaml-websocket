@@ -37,15 +37,15 @@ module Frame = struct
     let max = 0xf
 
     let of_enum = function
-      | i when (i < 0 || i > 0xf) -> None
-      | 0                         -> Some Continuation
-      | 1                         -> Some Text
-      | 2                         -> Some Binary
-      | 8                         -> Some Close
-      | 9                         -> Some Ping
-      | 10                        -> Some Pong
-      | i when i < 8              -> Some (Nonctrl i)
-      | i                         -> Some (Ctrl i)
+      | i when (i < 0 || i > 0xf) -> invalid_arg "Frame.Opcode.of_enum"
+      | 0                         -> Continuation
+      | 1                         -> Text
+      | 2                         -> Binary
+      | 8                         -> Close
+      | 9                         -> Ping
+      | 10                        -> Pong
+      | i when i < 8              -> Nonctrl i
+      | i                         -> Ctrl i
 
     let to_enum = function
       | Continuation   -> 0
@@ -60,20 +60,12 @@ module Frame = struct
     let is_ctrl opcode = to_enum opcode > 7
   end
 
-  type t = { opcode: Opcode.t;
-             extension: int;
-             final: bool;
-             content: string;
-           } [@@deriving show]
-
-  let create
-      ?(opcode=Opcode.Text)
-      ?(extension=0)
-      ?(final=true)
-      ?(content="") () =
-    {
-      opcode; extension; final; content
-    }
+  type t = {
+    opcode: Opcode.t [@default Opcode.Text];
+    extension: int [@default 0];
+    final: bool [@default true];
+    content: string [@default ""];
+  } [@@deriving create,show]
 
   let of_bytes ?opcode ?extension ?final content =
     let content = Bytes.unsafe_to_string content in
@@ -115,14 +107,16 @@ module IO(IO: Cohttp.S.IO) = struct
   let read_uint16 ic =
     read ic 2 >>= fun buf ->
     if String.length buf = 2 then
-      return @@ Some (EndianString.BigEndian.get_uint16 buf 0)
-    else return None
+      return @@ EndianString.BigEndian.get_uint16 buf 0
+    else
+      failwith "read_uint16"
 
   let read_int64 ic =
     read ic 8 >>= fun buf ->
     if String.length buf = 8 then
-      return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0)
-    else return None
+      return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
+    else
+      failwith "read_int64"
 
   let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
@@ -134,14 +128,15 @@ module IO(IO: Cohttp.S.IO) = struct
     let payload_len = match len with
       | n when n < 126      -> len
       | n when n < 1 lsl 16 -> 126
-      | _                   -> 127 in
+      | _                   -> 127
+    in
     let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 masked in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
     EndianBytes.BigEndian.set_int16 scratch 0 hdr;
     Buffer.add_subbytes buf scratch 0 2;
-    (match len with
+    begin match len with
      | n when n < 126 -> ()
      | n when n < (1 lsl 16) ->
        EndianBytes.BigEndian.set_int16 scratch 0 n;
@@ -149,11 +144,11 @@ module IO(IO: Cohttp.S.IO) = struct
      | n ->
        EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n);
        Buffer.add_subbytes buf scratch 0 8;
-    );
-    if masked then (
+    end;
+    if masked then begin
       Buffer.add_string buf mask;
       if len > 0 then xor mask content;
-    );
+    end;
     Buffer.add_bytes buf content
 
   let make_read_frame ?random_string ~masked (ic,oc) =
@@ -166,7 +161,7 @@ module IO(IO: Cohttp.S.IO) = struct
     in
     fun () ->
       read ic 2 >>= fun hdr ->
-      if hdr = "" then return `Eof
+      if hdr = "" then failwith "EOF"
       else
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
@@ -175,30 +170,27 @@ module IO(IO: Cohttp.S.IO) = struct
       let opcode = int_value 0 4 hdr_part1 in
       let frame_masked = is_bit_set 7 hdr_part2 in
       let length = int_value 0 7 hdr_part2 in
-      let opcode = Frame.Opcode.of_enum opcode |> CCOpt.get_exn in
+      let opcode = Frame.Opcode.of_enum opcode in
       (match length with
-       | i when i < 126 -> return @@ Some i
-       | 126            -> read_uint16 ic
-       | 127            -> read_int64 ic
-       | n              -> return None
+       | i when i < 126 -> return i
+       | 126 -> (try read_uint16 ic with _ -> return @@ -1)
+       | 127 -> (try read_int64 ic with _ -> return @@ -1)
+       | _ -> return @@ -1
       ) >>= fun payload_len ->
-      if payload_len = None then
-        return (`Error ("payload len = " ^ string_of_int length))
+      if payload_len = -1 then
+        failwith @@ "payload len = " ^ string_of_int length
+      else if extension <> 0 then
+        close_with_code 1002 >>= fun () ->
+        failwith "unsupported extension"
+      else if Opcode.is_ctrl opcode && payload_len > 125 then
+        close_with_code 1002 >>= fun () ->
+        failwith "control frame too big"
       else
-        let payload_len = CCOpt.get_exn payload_len in
-        if extension <> 0 then close_with_code 1002 >>= fun () ->
-          return (`Error "unsupported extension")
-        else if Opcode.is_ctrl opcode && payload_len > 125
-        then close_with_code 1002 >>= fun () ->
-          return (`Error "control frame too big")
-        else
-          (if frame_masked then read ic 4
-           else return @@ Bytes.(create 4 |> unsafe_to_string)) >>= fun mask ->
-        if String.length mask <> 4 then return (`Error "could not read mask")
-        else
-          (* Create a buffer that will be passed to the push function *)
-        if payload_len = 0 then
-          return @@ `Ok (Frame.create ~opcode ~extension ~final ())
+        (if frame_masked then read ic 4 else return @@ Bytes.(create 4 |> unsafe_to_string)) >>= fun mask ->
+        if String.length mask <> 4 then
+          failwith "could not read mask"
+        else if payload_len = 0 then
+          return @@ Frame.create ~opcode ~extension ~final ()
         else
           let rec read_all_payload remaining =
             read ic remaining >>= fun payload ->
@@ -212,5 +204,5 @@ module IO(IO: Cohttp.S.IO) = struct
           let payload = Bytes.unsafe_of_string payload in
           if frame_masked then xor mask payload;
           let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-          return @@ `Ok frame
+          return frame
 end

@@ -13,16 +13,10 @@ let send_frames ?random_string stream oc =
     Lwt_stream.iter_s send_frame stream
 
 let read_frames ?random_string icoc handler_fn =
-    let read_frame () =
-      let rf = Lwt_IO.make_read_frame ?random_string ~masked:false icoc () in
-      match%lwt rf with
-      | `Ok frame -> Lwt.return frame
-      | `Error msg -> Lwt.fail_with msg
-      | `Eof -> Lwt.fail_with "EOF"
-    in
-    while%lwt true do
-      read_frame () >>= Lwt.wrap1 handler_fn
-    done
+  let read_frame = Lwt_IO.make_read_frame ?random_string ~masked:false icoc in
+  while%lwt true do
+    read_frame () >>= Lwt.wrap1 handler_fn
+  done
 
 let upgrade_connection ?random_string request conn incoming_handler =
   let headers = Cohttp.Request.headers request in

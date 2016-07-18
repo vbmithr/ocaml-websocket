@@ -67,16 +67,12 @@ let client
       if Pipe.is_closed ws_to_app then
         Deferred.unit
       else
-        try_with begin
-          fun () -> read_frame () >>= function
-            | `Error msg -> failwith msg
-            | `Eof -> failwith "EOF"
-            | `Ok fr ->
-              Pipe.write ws_to_app fr
-        end >>= function
-        | Ok () -> forward_frames_to_app ws_to_app
-        | Error exn ->
-          maybe_debug log "%s" Exn.(to_string exn);
+        Monitor.try_with_or_error ~name:"Websocket.read_frame" read_frame >>= function
+        | Ok fr ->
+          Pipe.write ws_to_app fr >>= fun () ->
+          forward_frames_to_app ws_to_app
+        | Error err ->
+          maybe_debug log "%s" @@ Error.to_string_hum err;
           Deferred.unit
     in
     (* ws_to_net closed <-> app_to_ws closed *)
@@ -215,17 +211,12 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
   server_fun address reader writer >>= fun () ->
   set_tcp_nodelay writer;
   let read_frame = make_read_frame ?random_string ~masked:true (reader, writer) in
-  let rec loop () =
-    read_frame () >>= function
-    | `Eof -> Deferred.unit
-    | `Error msg -> failwith msg
-    | `Ok fr -> Pipe.write ws_to_app fr >>= loop
-  in
+  let rec loop () = read_frame () >>= Pipe.write ws_to_app >>= loop in
   let run () =
-    try_with ~name loop >>| function
+    Monitor.try_with_or_error ~name loop >>| function
     | Ok () -> ()
-    | Error exn ->
-      maybe_debug log "exception in server loop: %s" Exn.(to_string exn)
+    | Error err ->
+      maybe_debug log "exception in server loop: %s" Error.(to_string_hum err)
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)

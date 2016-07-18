@@ -3,6 +3,7 @@ S lib
 S tests
 B _build/lib
 B _build/tests
+PKG lwt
 PKG lwt.unix
 PKG lwt.ppx
 PKG cohttp
