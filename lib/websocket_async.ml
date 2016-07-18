@@ -52,7 +52,7 @@ let client
         failwith @@ "HTTP Error " ^ Code.(string_of_status status)
       else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
       else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
-      else if CCOpt.map String.lowercase Header.(get headers "upgrade") <> Some "websocket" then failwith "upgrade error"
+      else if Header.(get headers "upgrade") |> Option.map ~f:String.lowercase  <> Some "websocket" then failwith "upgrade error"
       else if not @@ upgrade_present headers then failwith "update not present"
       else if Header.get headers "sec-websocket-accept" <> Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum) then failwith "accept error"
       else Deferred.unit
@@ -191,12 +191,11 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
     if not (
         version = `HTTP_1_1
         && meth = `GET
-        && CCOpt.map String.lowercase @@
-        Header.get headers "upgrade" = Some "websocket"
+        && Header.get headers "upgrade" |> Option.map ~f:String.lowercase  = Some "websocket"
         && upgrade_present headers
       )
     then failwith "Protocol error";
-    let key = CCOpt.get_exn @@ Header.get headers "sec-websocket-key" in
+    let key = Option.value_exn ~message:"missing sec-websocket-key" (Header.get headers "sec-websocket-key") in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = Header.of_list
         ["Upgrade", "websocket";
