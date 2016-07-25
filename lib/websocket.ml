@@ -104,19 +104,28 @@ let upgrade_present hs =
 module IO(IO: Cohttp.S.IO) = struct
   open IO
 
-  let read_uint16 ic =
-    read ic 2 >>= fun buf ->
-    if String.length buf = 2 then
-      return @@ EndianString.BigEndian.get_uint16 buf 0
+  let rec read_exactly ic remaining buf =
+    read ic remaining >>= fun s ->
+    if s = "" then return None
     else
-      failwith "read_uint16"
+      let recv_len = String.length s in
+      Buffer.add_string buf s;
+      if remaining - recv_len <= 0 then return @@ Some (Buffer.contents buf)
+      else read_exactly ic (remaining - recv_len) buf
 
-  let read_int64 ic =
-    read ic 8 >>= fun buf ->
-    if String.length buf = 8 then
-      return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 buf 0
-    else
-      failwith "read_int64"
+  let read_uint16 ic buf =
+    read_exactly ic 2 buf >>= fun s ->
+    match s with
+    | None -> failwith "read_uint16"
+    | Some s ->
+        return @@ EndianString.BigEndian.get_uint16 s 0
+
+  let read_int64 ic buf =
+    read_exactly ic 8 buf >>= fun s ->
+    match s with
+    | None -> failwith "read_int64"
+    | Some s ->
+        return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 s 0
 
   let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
@@ -160,9 +169,11 @@ module IO(IO: Cohttp.S.IO) = struct
       write oc @@ Buffer.contents buf
     in
     fun () ->
-      read ic 2 >>= fun hdr ->
-      if hdr = "" then failwith "EOF"
-      else
+      Buffer.clear buf;
+      read_exactly ic 2 buf >>= fun hdr ->
+      match hdr with
+      | None -> failwith "EOF"
+      | Some hdr ->
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
       let final = is_bit_set 7 hdr_part1 in
@@ -171,10 +182,11 @@ module IO(IO: Cohttp.S.IO) = struct
       let frame_masked = is_bit_set 7 hdr_part2 in
       let length = int_value 0 7 hdr_part2 in
       let opcode = Frame.Opcode.of_enum opcode in
+      Buffer.clear buf;
       (match length with
        | i when i < 126 -> return i
-       | 126 -> (try read_uint16 ic with _ -> return @@ -1)
-       | 127 -> (try read_int64 ic with _ -> return @@ -1)
+       | 126 -> (try read_uint16 ic buf with _ -> return @@ -1)
+       | 127 -> (try read_int64 ic buf with _ -> return @@ -1)
        | _ -> return @@ -1
       ) >>= fun payload_len ->
       if payload_len = -1 then
@@ -192,15 +204,11 @@ module IO(IO: Cohttp.S.IO) = struct
         else if payload_len = 0 then
           return @@ Frame.create ~opcode ~extension ~final ()
         else
-          let rec read_all_payload remaining =
-            read ic remaining >>= fun payload ->
-            let recv_len = String.length payload in
-            Buffer.add_string buf payload;
-            if remaining - recv_len <= 0 then return @@ Buffer.contents buf
-            else read_all_payload (remaining - recv_len)
-          in
-          Buffer.clear buf;
-          read_all_payload payload_len >>= fun payload ->
+          (Buffer.clear buf;
+          read_exactly ic payload_len buf) >>= fun payload ->
+          match payload with
+          | None -> failwith "could not read payload"
+          | Some payload ->
           let payload = Bytes.unsafe_of_string payload in
           if frame_masked then xor mask payload;
           let frame = Frame.of_bytes ~opcode ~extension ~final payload in
