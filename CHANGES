@@ -1,3 +1,8 @@
+2.4 (2016-07-26)
+* bugfix: Handle truncated cohttp stream reads (@kayceesrk)
+* cleanup: Async version does not depend on containers anymore
+* build: fix META generation, fixing Async-only installation
+
 2.3 (2016-06-29)
 * async: bugfix: fix fd leak that occured when pipes were not closed
 * async: log, name as optional args in functions
