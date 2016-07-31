@@ -118,8 +118,6 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
     let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
     react id request read_frame send_frame
   in
-  Lwt.async_exception_hook :=
-    (fun exn -> Lwt_log.ign_warning ~section ~exn "async_exn_hook");
   Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
     (fun flow ic oc ->
        (try%lwt
