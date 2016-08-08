@@ -9,16 +9,6 @@ let client protocol extensions uri =
   let port = Option.value_exn ~message:"no port inferred from scheme"
       Uri_services.(tcp_port_of_uri uri) in
   let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
-  let read_line_and_write_to_pipe w =
-    let rec loop () =
-      Reader.(read_line Lazy.(force stdin)) >>= function
-      | `Eof ->
-          debug "Got EOF. Closing pipe.";
-          Pipe.close w;
-          Shutdown.exit 0
-      | `Ok s -> Pipe.write w s >>= loop
-    in loop ()
-  in
   let tcp_fun s r w =
     Socket.(setopt s Opt.nodelay true);
     (if scheme = "https" || scheme = "wss"
@@ -37,8 +27,10 @@ let client protocol extensions uri =
         ~log:Lazy.(force log)
         ~heartbeat:Time.Span.(of_sec 5.) uri s r w
     in
-    don't_wait_for @@ read_line_and_write_to_pipe w;
-    Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
+    Deferred.all_unit [
+      Pipe.transfer Reader.(pipe @@ Lazy.force stdin) w ~f:(fun s -> String.chop_suffix_exn s ~suffix:"\n");
+      Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
+    ]
   in
   Tcp.(with_connection (to_host_and_port host port) tcp_fun)
 
