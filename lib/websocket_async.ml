@@ -98,6 +98,7 @@ let client
   Monitor.try_with_or_error ~name (fun () -> Monitor.protect ~finally:finally_f run)
 
 let client_ez
+    ?opcode
     ?log
     ?(name="client_ez")
     ?extra_headers
@@ -156,7 +157,7 @@ let client_ez
   don't_wait_for begin
     Ivar.read initialized >>= fun () -> Deferred.all_unit [
       Pipe.transfer to_reactor_write reactor_write
-        ~f:(fun content -> Frame.create ~content ());
+        ~f:(fun content -> Frame.create ?opcode ~content ());
       if heartbeat <> Time.Span.zero then
         keepalive reactor_write
       else

@@ -43,6 +43,7 @@ val client :
   unit Deferred.Or_error.t
 
 val client_ez :
+  ?opcode:Frame.Opcode.t ->
   ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
