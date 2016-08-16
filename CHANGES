@@ -1,3 +1,7 @@
+2.5 (2016-08-16)
+* async: client_ez: add an ?opcode argument
+* lwt: unset async_exception_hook (@copy)
+
 2.4 (2016-07-26)
 * bugfix: Handle truncated cohttp stream reads (@kayceesrk)
 * cleanup: Async version does not depend on containers anymore

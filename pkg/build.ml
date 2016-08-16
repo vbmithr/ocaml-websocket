@@ -13,6 +13,7 @@ let cryptokit = Env.bool "cryptokit"
 let test = Env.bool "test"
 
 let ocamlbuild = "ocamlbuild -use-ocamlfind -classic-display -plugin-tag 'package(cppo_ocamlbuild)'"
+let version = "2.5"
 
 let generate_meta () =
   (* add in any deps *)
@@ -34,9 +35,10 @@ let generate_meta () =
     contents
   in
   let meta =
-    Str.(global_replace (regexp "<META_REQ>") (Buffer.contents meta_req)) tmpl |>
-    Str.(global_replace (regexp "<LWT_REQ>") (Buffer.contents lwt_req)) |>
-    Str.(global_replace (regexp "<ASYNC_REQ>") (Buffer.contents async_req))
+    Str.(global_replace (regexp "%%META_REQ%%") (Buffer.contents meta_req)) tmpl |>
+    Str.(global_replace (regexp "%%LWT_REQ%%") (Buffer.contents lwt_req)) |>
+    Str.(global_replace (regexp "%%ASYNC_REQ%%") (Buffer.contents async_req)) |>
+    Str.(global_replace (regexp "%%VERSION%%") version)
   in
 
   let out = open_out "pkg/META" in
