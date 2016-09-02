@@ -120,7 +120,7 @@ let client_ez
   let watch w =
     Clock_ns.after wait_for_pong >>= fun () ->
     let time_since_last_pong = Time_ns.abs_diff !last_pong @@ Time_ns.now () in
-    if Time_ns.Span.(time_since_last_pong > wait_for_pong)
+    if Time_ns.Span.(time_since_last_pong > wait_for_pong + of_int_sec 5)
     then finally_f ()
     else Deferred.unit
   in
