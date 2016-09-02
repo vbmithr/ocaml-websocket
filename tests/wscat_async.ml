@@ -25,7 +25,7 @@ let client protocol extensions uri =
     let r, w = client_ez
         ~extra_headers
         ~log:Lazy.(force log)
-        ~heartbeat:Time.Span.(of_sec 5.) uri s r w
+        ~heartbeat:Time_ns.Span.(of_int_sec 5) uri s r w
     in
     Deferred.all_unit [
       Pipe.transfer Reader.(pipe @@ Lazy.force stdin) w ~f:(fun s -> String.chop_suffix_exn s ~suffix:"\n");
