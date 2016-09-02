@@ -12,8 +12,8 @@ tags: [
   "org:xapi-project"
 ]
 build: [
-  ["ocaml" "pkg/build.ml" "native=%{ocaml-native}%"
-                          "native-dynlink=%{ocaml-native-dynlink}%"
+  ["ocaml" "pkg/build.ml" "native=%{ocaml:native}%"
+                          "native-dynlink=%{ocaml:native-dynlink}%"
                           "lwt=%{lwt:installed}%"
                           "async=%{async:installed}%"
                           "async_ssl=%{async_ssl:installed}%"
@@ -23,6 +23,7 @@ build: [
   ]
 ]
 depends: [
+  "ocaml" {>= "4.02.0"}
   "cppo" {build}
   "containers" {>= "0.10"}
   "cohttp" {>= "0.17.1"}
@@ -37,5 +38,3 @@ conflicts: [
   "async" {< "112.35.00"}
   "nocrypto" {< "0.5.0"}
 ]
-
-available: [ ocaml-version >="4.02.0" ]
