@@ -198,10 +198,12 @@ module IO(IO: Cohttp.S.IO) = struct
         close_with_code 1002 >>= fun () ->
         failwith "control frame too big"
       else
-        (if frame_masked then read ic 4 else return @@ Bytes.(create 4 |> unsafe_to_string)) >>= fun mask ->
-        if String.length mask <> 4 then
-          failwith "could not read mask"
-        else if payload_len = 0 then
+        (if frame_masked then
+           read_exactly ic 4 (Buffer.create 4) >>= function
+           | None -> failwith "could not read mask";
+           | Some mask -> return mask
+         else return String.empty) >>= fun mask ->
+        if payload_len = 0 then
           return @@ Frame.create ~opcode ~extension ~final ()
         else
           (Buffer.clear buf;
