@@ -1,3 +1,8 @@
+2.6 (2016-09-17)
+* async: client_ez: kill the connection on absence of PONG reply
+* async: client_ez: fix PONG watch code
+* websocket: use read_exactly (@copy)
+
 2.5 (2016-08-16)
 * async: client_ez: add an ?opcode argument
 * lwt: unset async_exception_hook (@copy)
