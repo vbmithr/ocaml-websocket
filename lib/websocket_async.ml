@@ -14,10 +14,6 @@ let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
   Socket.setopt socket Socket.Opt.nodelay true
 
-let maybe_debug log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.debug log "%s" msg)) k
-let maybe_info log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.info log "%s" msg)) k
-let maybe_error log k = Printf.ksprintf (fun msg -> Option.iter log ~f:(fun log -> Log.error log "%s" msg)) k
-
 let client
     ?log
     ?(name="client")
@@ -37,18 +33,18 @@ let client
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
-    maybe_debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req));
+    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
     Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
     Response_async.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-      maybe_debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response));
+        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
       let status = Response.status response in
       let headers = Response.headers response in
       if Code.(is_error @@ code_of_status status) then
         Reader.contents r >>= fun msg ->
-        maybe_error log "%s" msg;
+        Option.iter log ~f:(fun log -> Log.error log "%s" msg);
         failwith @@ "HTTP Error " ^ Code.(string_of_status status)
       else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
       else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
@@ -72,7 +68,7 @@ let client
           Pipe.write ws_to_app fr >>= fun () ->
           forward_frames_to_app ws_to_app
         | Error err ->
-          maybe_debug log "%s" @@ Error.to_string_hum err;
+          Option.iter log ~f:(fun log -> Log.error log "%s" @@ Error.to_string_hum err);
           Deferred.unit
     in
     (* ws_to_net closed <-> app_to_ws closed *)
@@ -129,7 +125,7 @@ let client_ez
     if Pipe.is_closed w then
       Deferred.unit
     else begin
-      maybe_debug log "-> PING";
+      Option.iter log ~f:(fun log -> Log.debug log "-> PING");
       Pipe.write w @@ Frame.create
         ~opcode:Frame.Opcode.Ping
         ~content:Time_ns.(now () |> to_string_fix_proto `Utc) () >>= fun () ->
@@ -139,7 +135,7 @@ let client_ez
   in
   let react w fr =
     let open Frame in
-    maybe_debug log "<- %s" Frame.(show fr);
+    Option.iter log ~f:(fun log -> Log.debug log "<- %s" Frame.(show fr));
     match fr.opcode with
     | Opcode.Ping ->
         Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
@@ -184,10 +180,10 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
       | `Ok r -> r
       | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
-        maybe_info log "Remote endpoint closed connection";
+        Option.iter log ~f:(fun log -> Log.info log "Remote endpoint closed connection");
         raise End_of_file
       | `Invalid reason ->
-        maybe_info log "Invalid input from remote endpoint: %s" reason;
+        Option.iter log ~f:(fun log -> Log.info log "Invalid input from remote endpoint: %s" reason);
         failwith reason) >>= fun request ->
     let meth    = Request.meth request in
     let version = Request.version request in
@@ -219,7 +215,7 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
     Monitor.try_with_or_error ~name loop >>| function
     | Ok () -> ()
     | Error err ->
-      maybe_debug log "exception in server loop: %s" Error.(to_string_hum err)
+      Option.iter log ~f:(fun log -> Log.error log "exception in server loop: %s" Error.(to_string_hum err))
   in
   let buf = Buffer.create 128 in
   let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
