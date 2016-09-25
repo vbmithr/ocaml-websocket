@@ -199,7 +199,7 @@ module IO(IO: Cohttp.S.IO) = struct
         failwith "control frame too big"
       else
         (if frame_masked then
-           read_exactly ic 4 (Buffer.create 4) >>= function
+           read_exactly ic 4 buf >>= function
            | None -> failwith "could not read mask";
            | Some mask -> return mask
          else return String.empty) >>= fun mask ->
