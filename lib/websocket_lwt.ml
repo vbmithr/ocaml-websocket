@@ -48,7 +48,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
                    && C.Header.get headers "sec-websocket-accept" =
                       Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
                   )
-      then Lwt.fail_with "Protocol error"
+      then Lwt.fail (Protocol_error "Bad headers")
       else Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri)
     in
     (try%lwt
@@ -70,7 +70,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
        Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 
-let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
+let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.async_exception_hook)) ~ctx ~mode react =
   let module C = Cohttp in
   let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
   let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
@@ -84,7 +84,7 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
         Lwt.fail End_of_file
       | `Invalid reason ->
         Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason >>= fun () ->
-        Lwt.fail @@ Failure reason) >>= fun request ->
+        Lwt.fail @@ HTTP_Error reason) >>= fun request ->
     let meth    = C.Request.meth request in
     let version = C.Request.version request in
     let headers = C.Request.headers request in
@@ -95,7 +95,7 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
         C.Header.get headers "upgrade" = Some "websocket"
         && upgrade_present headers
       )
-    then Lwt.fail_with "Protocol error"
+    then Lwt.fail (Protocol_error "Bad headers")
     else Lwt.return_unit >>= fun () ->
     let key = CCOpt.get_exn @@ C.Header.get headers "sec-websocket-key" in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
@@ -115,7 +115,6 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
       Lwt_io.write oc @@ Buffer.contents buf
     in
     let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
-    let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
     react id request read_frame send_frame
   in
   Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
@@ -129,7 +128,7 @@ let establish_server ?timeout ?stop ?random_string ~ctx ~mode react =
           Lwt_log.info ~section "Client closed connection"
         | Exit ->
           Lwt_log.info ~section "Server closed connection"
-        | exn -> Lwt.fail exn
+        | exn -> exception_handler exn; Lwt.return_unit
        ) [%finally Lwt_io.close ic]
     )
 
@@ -142,7 +141,7 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?timeout ?stop ?random_string ~ctx ~mode react =
+let establish_standard_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode react =
   let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
@@ -163,4 +162,4 @@ let establish_standard_server ?timeout ?stop ?random_string ~ctx ~mode react =
     in
     react id req recv send
   in
-  establish_server ?timeout ?stop ?random_string ~ctx ~mode f
+  establish_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode f
