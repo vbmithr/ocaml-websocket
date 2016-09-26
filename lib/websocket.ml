@@ -174,7 +174,7 @@ module IO(IO: Cohttp.S.IO) = struct
       Buffer.clear buf;
       read_exactly ic 2 buf >>= fun hdr ->
       match hdr with
-      | None -> raise (Protocol_error "EOF")
+      | None -> raise End_of_file
       | Some hdr ->
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
