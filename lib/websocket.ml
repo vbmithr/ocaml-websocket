@@ -101,6 +101,8 @@ let upgrade_present hs =
   List.map String.(fun h -> h |> String.Ascii.lowercase |> trim) hs |>
   List.mem "upgrade"
 
+exception Protocol_error of string
+
 module IO(IO: Cohttp.S.IO) = struct
   open IO
 
@@ -116,16 +118,16 @@ module IO(IO: Cohttp.S.IO) = struct
   let read_uint16 ic buf =
     read_exactly ic 2 buf >>= fun s ->
     match s with
-    | None -> failwith "read_uint16"
+    | None -> return None
     | Some s ->
-        return @@ EndianString.BigEndian.get_uint16 s 0
+        return @@ Some (EndianString.BigEndian.get_uint16 s 0)
 
   let read_int64 ic buf =
     read_exactly ic 8 buf >>= fun s ->
     match s with
-    | None -> failwith "read_int64"
+    | None -> return None
     | Some s ->
-        return @@ Int64.to_int @@ EndianString.BigEndian.get_int64 s 0
+        return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
   let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
@@ -172,7 +174,7 @@ module IO(IO: Cohttp.S.IO) = struct
       Buffer.clear buf;
       read_exactly ic 2 buf >>= fun hdr ->
       match hdr with
-      | None -> failwith "EOF"
+      | None -> raise End_of_file
       | Some hdr ->
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
@@ -185,22 +187,22 @@ module IO(IO: Cohttp.S.IO) = struct
       Buffer.clear buf;
       (match length with
        | i when i < 126 -> return i
-       | 126 -> (try read_uint16 ic buf with _ -> return @@ -1)
-       | 127 -> (try read_int64 ic buf with _ -> return @@ -1)
+       | 126 -> (read_uint16 ic buf >>= function Some i -> return i | None -> return @@ -1)
+       | 127 -> (read_int64 ic buf >>= function Some i -> return i | None -> return @@ -1)
        | _ -> return @@ -1
       ) >>= fun payload_len ->
       if payload_len = -1 then
-        failwith @@ "payload len = " ^ string_of_int length
+        raise (Protocol_error ("payload len = " ^ string_of_int length))
       else if extension <> 0 then
         close_with_code 1002 >>= fun () ->
-        failwith "unsupported extension"
+        raise (Protocol_error "unsupported extension")
       else if Opcode.is_ctrl opcode && payload_len > 125 then
         close_with_code 1002 >>= fun () ->
-        failwith "control frame too big"
+        raise (Protocol_error "control frame too big")
       else
         (if frame_masked then
-           read_exactly ic 4 (Buffer.create 4) >>= function
-           | None -> failwith "could not read mask";
+           read_exactly ic 4 buf >>= function
+           | None -> raise (Protocol_error "could not read mask");
            | Some mask -> return mask
          else return String.empty) >>= fun mask ->
         if payload_len = 0 then
@@ -209,7 +211,7 @@ module IO(IO: Cohttp.S.IO) = struct
           (Buffer.clear buf;
           read_exactly ic payload_len buf) >>= fun payload ->
           match payload with
-          | None -> failwith "could not read payload"
+          | None -> raise (Protocol_error "could not read payload")
           | Some payload ->
           let payload = Bytes.unsafe_of_string payload in
           if frame_masked then xor mask payload;

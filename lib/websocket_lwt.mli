@@ -40,6 +40,7 @@ val establish_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
+  ?exception_handler:(exn -> unit) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
