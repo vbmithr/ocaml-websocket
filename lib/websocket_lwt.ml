@@ -23,6 +23,9 @@ open Lwt.Infix
 module Lwt_IO = IO(Cohttp_lwt_unix_io)
 open Lwt_IO
 
+module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io)
+module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io)
+
 let section = Lwt_log.Section.make "websocket_lwt"
 exception HTTP_Error of string
 
@@ -31,6 +34,19 @@ let set_tcp_nodelay flow =
   match flow with
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
+
+let check_origin_with_host request =
+  let headers = request.Cohttp.Request.headers in
+  let host = Cohttp.Header.get headers "host" in
+  let origin = Cohttp.Header.get headers "origin" in
+  match host, origin with
+  | None, _ -> failwith "Missing host header" (* mandatory in http/1.1 *)
+  | _, None -> true
+  | Some host, Some origin ->
+    (* remove port *)
+    let hostname = CCOpt.get_or ~default:host (CCString.Split.gen_cpy ~by:":" host ()) in
+    let origin = Uri.of_string origin in
+    Some hostname = Uri.host origin
 
 let with_connection ?(extra_headers = Cohttp.Header.init ())
   ?(random_string=Rng.std ?state:None) ~ctx client uri =
@@ -42,8 +58,6 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
-    let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
-    let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
     let req = C.Request.make ~headers uri in
     Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
@@ -88,10 +102,21 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
        Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 
-let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.async_exception_hook)) ~ctx ~mode react =
+let write_failed_response oc =
+  let response = Cohttp.Response.make
+      ~status:`Forbidden
+      ~encoding:Cohttp.Transfer.Unknown
+      ()
+  in
+  Response.write ~flush:true begin fun writer ->
+    Response.write_body writer "403 Forbidden"
+  end response oc
+
+let establish_server ?timeout ?stop ?random_string
+    ?(exception_handler=(!Lwt.async_exception_hook))
+    ?(check_request=check_origin_with_host)
+    ~ctx ~mode react =
   let module C = Cohttp in
-  let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
-  let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
   let id = ref @@ -1 in
   let server_fun id (ic, oc) =
     (Request.read ic >>= function
@@ -106,16 +131,19 @@ let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.asy
     let meth    = C.Request.meth request in
     let version = C.Request.version request in
     let headers = C.Request.headers request in
+    let key = C.Header.get headers "sec-websocket-key" in
     if not (
         version = `HTTP_1_1
         && meth = `GET
         && CCOpt.map String.Ascii.lowercase @@
-        C.Header.get headers "upgrade" = Some "websocket"
+          C.Header.get headers "upgrade" = Some "websocket"
+        && key <> None
         && upgrade_present headers
+        && check_request request
       )
-    then Lwt.fail (Protocol_error "Bad headers")
-    else Lwt.return_unit >>= fun () ->
-    let key = CCOpt.get_exn @@ C.Header.get headers "sec-websocket-key" in
+    then write_failed_response oc >>= fun () -> Lwt.fail (Protocol_error "Bad headers")
+    else
+    let key = CCOpt.get_exn key in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";
@@ -159,7 +187,8 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode react =
+let establish_standard_server ?timeout ?stop ?random_string
+    ?exception_handler ?check_request ~ctx ~mode react =
   let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
@@ -180,4 +209,4 @@ let establish_standard_server ?timeout ?stop ?random_string ?exception_handler ~
     in
     react id req recv send
   in
-  establish_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode f
+  establish_server ?timeout ?stop ?random_string ?exception_handler ?check_request ~ctx ~mode f

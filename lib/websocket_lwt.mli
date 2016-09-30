@@ -28,6 +28,10 @@ val section : Lwt_log_core.section
 
 module Frame : module type of Websocket.Frame
 
+val check_origin_with_host : Cohttp.Request.t -> bool
+(** [check_origin_with_host] returns false if the origin header exists and its
+    host doesn't match the host header *)
+
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:Rng.t ->
@@ -41,12 +45,17 @@ val establish_server :
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
   ?exception_handler:(exn -> unit) ->
+  ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
    Cohttp.Request.t ->
    (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
   unit Lwt.t
+(** [exception_handler] defaults to [Lwt.async_exception_hook]
+    [check_request] is called before the http upgrade. If it returns false, the
+    websocket connection is aborted with a "403 Forbidden" response. It
+    defaults to {!check_origin_with_host} *)
 
 (** {2 Convenience functions} *)
 
@@ -59,6 +68,8 @@ val establish_standard_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
+  ?exception_handler:(exn -> unit) ->
+  ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (int ->
