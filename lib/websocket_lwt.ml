@@ -35,6 +35,19 @@ let set_tcp_nodelay flow =
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
+let check_origin_with_host request =
+  let headers = request.Cohttp.Request.headers in
+  let host = Cohttp.Header.get headers "host" in
+  let origin = Cohttp.Header.get headers "origin" in
+  match host, origin with
+  | None, _ -> failwith "Missing host header" (* mandatory in http/1.1 *)
+  | _, None -> true
+  | Some host, Some origin ->
+    (* remove port *)
+    let hostname = CCOpt.get_or ~default:host (CCString.Split.gen_cpy ~by:":" host ()) in
+    let origin = Uri.of_string origin in
+    Some hostname = Uri.host origin
+
 let with_connection ?(extra_headers = Cohttp.Header.init ())
   ?(random_string=Rng.std ?state:None) ~ctx client uri =
   let connect () =
@@ -45,8 +58,6 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
-    let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
-    let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
     let req = C.Request.make ~headers uri in
     Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
@@ -101,7 +112,10 @@ let write_failed_response oc =
     Response.write_body writer "403 Forbidden"
   end response oc
 
-let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.async_exception_hook)) ~ctx ~mode react =
+let establish_server ?timeout ?stop ?random_string
+    ?(exception_handler=(!Lwt.async_exception_hook))
+    ?(check_request=check_origin_with_host)
+    ~ctx ~mode react =
   let module C = Cohttp in
   let id = ref @@ -1 in
   let server_fun id (ic, oc) =
@@ -125,6 +139,7 @@ let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.asy
           C.Header.get headers "upgrade" = Some "websocket"
         && key <> None
         && upgrade_present headers
+        && check_request request
       )
     then write_failed_response oc >>= fun () -> Lwt.fail (Protocol_error "Bad headers")
     else
@@ -172,7 +187,8 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode react =
+let establish_standard_server ?timeout ?stop ?random_string
+    ?exception_handler ?check_request ~ctx ~mode react =
   let f id req recv send =
     let recv fr =
       let%lwt fr = recv () in
@@ -193,4 +209,4 @@ let establish_standard_server ?timeout ?stop ?random_string ?exception_handler ~
     in
     react id req recv send
   in
-  establish_server ?timeout ?stop ?random_string ?exception_handler ~ctx ~mode f
+  establish_server ?timeout ?stop ?random_string ?exception_handler ?check_request ~ctx ~mode f
