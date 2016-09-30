@@ -23,6 +23,9 @@ open Lwt.Infix
 module Lwt_IO = IO(Cohttp_lwt_unix_io)
 open Lwt_IO
 
+module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io)
+module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io)
+
 let section = Lwt_log.Section.make "websocket_lwt"
 exception HTTP_Error of string
 
@@ -88,10 +91,18 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
        Lwt_io.write oc @@ Buffer.contents buf
      with exn -> Lwt.fail exn)
 
+let write_failed_response oc =
+  let response = Cohttp.Response.make
+      ~status:`Forbidden
+      ~encoding:Cohttp.Transfer.Unknown
+      ()
+  in
+  Response.write ~flush:true begin fun writer ->
+    Response.write_body writer "403 Forbidden"
+  end response oc
+
 let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.async_exception_hook)) ~ctx ~mode react =
   let module C = Cohttp in
-  let module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io) in
-  let module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io) in
   let id = ref @@ -1 in
   let server_fun id (ic, oc) =
     (Request.read ic >>= function
@@ -106,16 +117,18 @@ let establish_server ?timeout ?stop ?random_string ?(exception_handler=(!Lwt.asy
     let meth    = C.Request.meth request in
     let version = C.Request.version request in
     let headers = C.Request.headers request in
+    let key = C.Header.get headers "sec-websocket-key" in
     if not (
         version = `HTTP_1_1
         && meth = `GET
         && CCOpt.map String.Ascii.lowercase @@
-        C.Header.get headers "upgrade" = Some "websocket"
+          C.Header.get headers "upgrade" = Some "websocket"
+        && key <> None
         && upgrade_present headers
       )
-    then Lwt.fail (Protocol_error "Bad headers")
-    else Lwt.return_unit >>= fun () ->
-    let key = CCOpt.get_exn @@ C.Header.get headers "sec-websocket-key" in
+    then write_failed_response oc >>= fun () -> Lwt.fail (Protocol_error "Bad headers")
+    else
+    let key = CCOpt.get_exn key in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";
