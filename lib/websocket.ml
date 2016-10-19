@@ -21,6 +21,24 @@ let b64_encoded_sha1sum s = Sha1.sha_1 s |> B64.encode ~pad:true
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+module Option = struct
+  let value ~default = function
+  | None -> default
+  | Some v -> v
+
+  let value_map ~default ~f = function
+  | None -> default
+  | Some v -> f v
+
+  let value_exn = function
+  | None -> invalid_arg "Option.value_exn"
+  | Some v -> v
+
+  let map ~f = function
+  | None -> None
+  | Some v -> Some (f v)
+end
+
 module Frame = struct
   module Opcode = struct
     type t =

@@ -25,7 +25,6 @@ build: [
 depends: [
   "ocaml" {>= "4.02.0"}
   "cppo" {build}
-  "containers" {>= "0.10"}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}
   "ppx_deriving" {>= "2.0"}

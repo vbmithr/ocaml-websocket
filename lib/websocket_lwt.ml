@@ -44,7 +44,7 @@ let check_origin_with_host request =
   | _, None -> true
   | Some host, Some origin ->
     (* remove port *)
-    let hostname = CCOpt.get_or ~default:host (CCString.Split.gen_cpy ~by:":" host ()) in
+    let hostname = Option.value_map ~default:host ~f:fst (String.cut ~sep:":" host) in
     let origin = Uri.of_string origin in
     Some hostname = Uri.host origin
 
@@ -73,7 +73,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
       then Lwt.fail @@ HTTP_Error C.Code.(string_of_status status)
       else if not (C.Response.version response = `HTTP_1_1
                    && status = `Switching_protocols
-                   && CCOpt.map String.Ascii.lowercase @@
+                   && Option.map ~f:String.Ascii.lowercase @@
                    C.Header.get headers "upgrade" = Some "websocket"
                    && upgrade_present headers
                    && C.Header.get headers "sec-websocket-accept" =
@@ -135,7 +135,7 @@ let establish_server ?timeout ?stop ?random_string
     if not (
         version = `HTTP_1_1
         && meth = `GET
-        && CCOpt.map String.Ascii.lowercase @@
+        && Option.map ~f:String.Ascii.lowercase @@
           C.Header.get headers "upgrade" = Some "websocket"
         && key <> None
         && upgrade_present headers
@@ -143,7 +143,7 @@ let establish_server ?timeout ?stop ?random_string
       )
     then write_failed_response oc >>= fun () -> Lwt.fail (Protocol_error "Bad headers")
     else
-    let key = CCOpt.get_exn key in
+    let key = Option.value_exn key in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";

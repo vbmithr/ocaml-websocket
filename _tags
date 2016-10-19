@@ -14,7 +14,6 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
                        package(uri), \
                        package(cohttp.lwt), \
                        package(ppx_deriving.std), \
-                       package(containers), \
                        package(conduit), \
                        package(astring)
 
@@ -22,14 +21,12 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
                               package(lwt.ppx), \
                               package(uri), \
                               package(cohttp.lwt), \
-                              package(containers), \
                               package(conduit)
 
 <lib/websocket_async.*>: package(async), \
                        package(uri), \
                        package(cohttp.async), \
                        package(ppx_deriving.std), \
-                       package(containers), \
                        package(conduit), \
                        thread
 
@@ -38,7 +35,6 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
              package(uri), \
              package(cohttp.lwt), \
              package(ppx_deriving.std), \
-             package(containers), \
              package(conduit), \
              package(astring)
 
@@ -48,11 +44,9 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
                        thread, \
                        package(uri), \
                        package(cohttp.async), \
-                       package(containers), \
                        package(astring)
 
 <tests/upgrade_connection.*>: \
-    package(containers), \
     package(cohttp), \
     package(cohttp.lwt), \
     package(conduit), \

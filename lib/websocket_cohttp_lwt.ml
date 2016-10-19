@@ -15,6 +15,8 @@
  *
  *)
 
+open Websocket
+
 module C = Cohttp
 module Lwt_IO = Websocket.IO(Cohttp_lwt_unix_io)
 
@@ -37,7 +39,7 @@ let read_frames ?random_string icoc handler_fn =
 
 let upgrade_connection ?random_string request conn incoming_handler =
   let headers = Cohttp.Request.headers request in
-  let key = CCOpt.get_exn @@ Cohttp.Header.get headers "sec-websocket-key" in
+  let key = Option.value_exn @@ Cohttp.Header.get headers "sec-websocket-key" in
   let hash = key ^ Websocket.websocket_uuid |> Websocket.b64_encoded_sha1sum in
   let response_headers =
       Cohttp.Header.of_list
