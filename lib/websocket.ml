@@ -180,17 +180,16 @@ module IO(IO: Cohttp.S.IO) = struct
     end;
     Buffer.add_bytes buf content
 
-  let make_read_frame ?random_string ~masked (ic,oc) =
-    let buf = Buffer.create 4096 in
+  let make_read_frame ?(buffer=Buffer.create 4096) ?random_string ~masked (ic,oc) =
     let open Frame in
     let close_with_code code =
-      Buffer.clear buf;
-      write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;
-      write oc @@ Buffer.contents buf
+      Buffer.clear buffer;
+      write_frame_to_buf ?random_string ~masked buffer @@ Frame.close code;
+      write oc @@ Buffer.contents buffer
     in
     fun () ->
-      Buffer.clear buf;
-      read_exactly ic 2 buf >>= fun hdr ->
+      Buffer.clear buffer;
+      read_exactly ic 2 buffer >>= fun hdr ->
       match hdr with
       | None -> raise End_of_file
       | Some hdr ->
@@ -202,11 +201,11 @@ module IO(IO: Cohttp.S.IO) = struct
       let frame_masked = is_bit_set 7 hdr_part2 in
       let length = int_value 0 7 hdr_part2 in
       let opcode = Frame.Opcode.of_enum opcode in
-      Buffer.clear buf;
+      Buffer.clear buffer;
       (match length with
        | i when i < 126 -> return i
-       | 126 -> (read_uint16 ic buf >>= function Some i -> return i | None -> return @@ -1)
-       | 127 -> (read_int64 ic buf >>= function Some i -> return i | None -> return @@ -1)
+       | 126 -> (read_uint16 ic buffer >>= function Some i -> return i | None -> return @@ -1)
+       | 127 -> (read_int64 ic buffer >>= function Some i -> return i | None -> return @@ -1)
        | _ -> return @@ -1
       ) >>= fun payload_len ->
       if payload_len = -1 then
@@ -219,15 +218,15 @@ module IO(IO: Cohttp.S.IO) = struct
         raise (Protocol_error "control frame too big")
       else
         (if frame_masked then
-           read_exactly ic 4 buf >>= function
+           read_exactly ic 4 buffer >>= function
            | None -> raise (Protocol_error "could not read mask");
            | Some mask -> return mask
          else return String.empty) >>= fun mask ->
         if payload_len = 0 then
           return @@ Frame.create ~opcode ~extension ~final ()
         else
-          (Buffer.clear buf;
-          read_exactly ic payload_len buf) >>= fun payload ->
+          (Buffer.clear buffer;
+          read_exactly ic payload_len buffer) >>= fun payload ->
           match payload with
           | None -> raise (Protocol_error "could not read payload")
           | Some payload ->

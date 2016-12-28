@@ -37,11 +37,35 @@ module Connected_client = struct
     ic: Request.IO.ic;
     oc: Request.IO.oc;
     http_request: Cohttp.Request.t;
-    standard_frame_replies: bool;
+    mutable standard_frame_replies: bool;
+    read_frame: unit -> Frame.t Lwt.t;
+    read_frame_std: unit -> Frame.t Lwt.t;
+    send_frame: Frame.t -> unit Lwt.t;
   }
 
-  let create random_string http_request flow ic oc =
-    let buffer = Buffer.create 128 in
+  let create ?(buffer=Buffer.create 128) random_string http_request flow ic oc =
+    let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
+    let send_frame frame =
+      Buffer.clear buffer;
+      write_frame_to_buf ?random_string ~masked:false buffer frame;
+      Lwt_io.write oc @@ Buffer.contents buffer
+    in
+    let read_frame_std () =
+      let%lwt fr = read_frame () in
+      match fr.Frame.opcode with
+      | Frame.Opcode.Ping ->
+        send_frame @@ Frame.create
+          ~opcode:Frame.Opcode.Pong () >|= fun () -> fr
+      | Frame.Opcode.Close ->
+        (* Immediately echo and pass this last message to the user *)
+        (if String.length fr.Frame.content >= 2 then
+           send_frame @@ Frame.create
+             ~opcode:Frame.Opcode.Close
+             ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
+         else send_frame @@ Frame.close 1000
+        ) >|= fun () -> fr
+      | _ -> Lwt.return fr
+    in
     {
       random_string;
       buffer;
@@ -50,37 +74,16 @@ module Connected_client = struct
       oc;
       http_request;
       standard_frame_replies = false;
+      read_frame;
+      read_frame_std;
+      send_frame;
     }
 
-  let send { buffer; oc; random_string; _ } frame =
-    Buffer.clear buffer;
-    write_frame_to_buf ?random_string ~masked:false buffer frame;
-    Lwt_io.write oc @@ Buffer.contents buffer
-
-  let raw_recv { buffer; ic; oc; random_string; _ } =
-    make_read_frame ?random_string ~masked:false (ic, oc) ()
-
-  let standard_recv t =
-    let%lwt fr = raw_recv t in
-    match fr.Frame.opcode with
-    | Frame.Opcode.Ping ->
-        send t @@ Frame.create
-          ~opcode:Frame.Opcode.Pong () >|= fun () -> fr
-    | Frame.Opcode.Close ->
-        (* Immediately echo and pass this last message to the user *)
-        (if String.length fr.Frame.content >= 2 then
-           send t @@ Frame.create
-             ~opcode:Frame.Opcode.Close
-             ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
-         else send t @@ Frame.close 1000
-        ) >|= fun () -> fr
-    | _ -> Lwt.return fr
-
   let recv t =
-    if t.standard_frame_replies then
-      standard_recv t
-    else
-      raw_recv t
+    (if t.standard_frame_replies then t.read_frame_std else t.read_frame) ()
+
+  let send t frame =
+    t.send_frame frame
 
   let http_request { http_request; _ } = http_request
 
@@ -92,8 +95,6 @@ module Connected_client = struct
       None
     | Conduit_lwt_unix.Vchan _ ->
       None
-
-  let make_standard t = { t with standard_frame_replies = true }
 end
 
 let set_tcp_nodelay flow =
@@ -249,6 +250,7 @@ let mk_frame_stream recv =
 let establish_standard_server ?timeout ?stop ?random_string
     ?exception_handler ?check_request ~ctx ~mode react =
   let f client =
-    react (Connected_client.make_standard client)
+    client.Connected_client.standard_frame_replies <- true;
+    react client
   in
   establish_server ?timeout ?stop ?random_string ?exception_handler ?check_request ~ctx ~mode f
