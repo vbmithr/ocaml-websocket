@@ -1,20 +1,17 @@
 open Websocket_lwt
 open Lwt.Infix
 
-let h = Hashtbl.create 17
 let section = Lwt_log.Section.make "reynir"
 
-let handler id req recv send =
-  (try
-     Hashtbl.find h id
-   with Not_found ->
-     Hashtbl.add h id ();
-     Lwt_log.ign_info_f ~section "New connection (id = %d)" id;
-     Lwt.async (fun () ->
-         Lwt_unix.sleep 1.0 >|= fun () ->
-         send @@ Frame.create ~content:"Delayed message" ()
-       )
-  );
+let handler id client =
+  incr id;
+  let id = !id in
+  let send = Connected_client.send client in
+  Lwt_log.ign_info_f ~section "New connection (id = %d)" id;
+  Lwt.async (fun () ->
+      Lwt_unix.sleep 1.0 >|= fun () ->
+      send @@ Frame.create ~content:"Delayed message" ()
+    );
   let rec recv_forever () =
     let open Frame in
     let react fr =
@@ -41,20 +38,19 @@ let handler id req recv send =
         send @@ Frame.close 1002 >>= fun () ->
         Lwt.fail Exit
     in
-    recv () >>= react >>= recv_forever
+    Connected_client.recv client >>= react >>= recv_forever
   in
   try%lwt
     recv_forever ()
   with exn ->
     Lwt_log.info_f ~section "Connection to client %d lost" id >>= fun () ->
-    Hashtbl.remove h id;
     Lwt.fail exn
 
 let main uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   let open Conduit_lwt_unix in
   endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  establish_server ~ctx:default_ctx ~mode:server handler
+  establish_server ~ctx:default_ctx ~mode:server (handler @@ ref (-1))
 
 let () =
   let uri = ref "http://localhost:9001" in

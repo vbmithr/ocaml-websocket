@@ -28,6 +28,22 @@ val section : Lwt_log_core.section
 
 module Frame : module type of Websocket.Frame
 
+module Connected_client : sig
+  type t
+
+  val send : t -> Frame.t -> unit Lwt.t
+
+  val recv : t -> Frame.t Lwt.t
+
+  val http_request : t -> Cohttp.Request.t
+  (** [http_request] returns the http request that initialized this websocket
+      connection *)
+
+  val source : t -> (Ipaddr.t * int) option
+  (** [source] returns a tuple of the client's IP address and source port if the
+      connection was established via tcp *)
+end
+
 val check_origin_with_host : Cohttp.Request.t -> bool
 (** [check_origin_with_host] returns false if the origin header exists and its
     host doesn't match the host header *)
@@ -48,9 +64,7 @@ val establish_server :
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
-  (int ->
-   Cohttp.Request.t ->
-   (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
+  (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
 (** [exception_handler] defaults to [Lwt.async_exception_hook]
     [check_request] is called before the http upgrade. If it returns false, the
@@ -72,9 +86,7 @@ val establish_standard_server :
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
-  (int ->
-   Cohttp.Request.t ->
-     (unit -> Frame.t Lwt.t) -> (Frame.t -> unit Lwt.t) -> unit Lwt.t) ->
+  (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
 (** [establish_standard_server] is like {!establish_server} but with
     automatic handling of some frames:
