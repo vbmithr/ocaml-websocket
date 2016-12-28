@@ -29,6 +29,74 @@ module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io)
 let section = Lwt_log.Section.make "websocket_lwt"
 exception HTTP_Error of string
 
+module Connected_client = struct
+  type t = {
+    random_string: Rng.t option;
+    buffer: Buffer.t;
+    flow: Conduit_lwt_unix.flow;
+    ic: Request.IO.ic;
+    oc: Request.IO.oc;
+    http_request: Cohttp.Request.t;
+    mutable standard_frame_replies: bool;
+    read_frame: unit -> Frame.t Lwt.t;
+    read_frame_std: unit -> Frame.t Lwt.t;
+    send_frame: Frame.t -> unit Lwt.t;
+  }
+
+  let create ?(buffer=Buffer.create 128) random_string http_request flow ic oc =
+    let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
+    let send_frame frame =
+      Buffer.clear buffer;
+      write_frame_to_buf ?random_string ~masked:false buffer frame;
+      Lwt_io.write oc @@ Buffer.contents buffer
+    in
+    let read_frame_std () =
+      let%lwt fr = read_frame () in
+      match fr.Frame.opcode with
+      | Frame.Opcode.Ping ->
+        send_frame @@ Frame.create
+          ~opcode:Frame.Opcode.Pong () >|= fun () -> fr
+      | Frame.Opcode.Close ->
+        (* Immediately echo and pass this last message to the user *)
+        (if String.length fr.Frame.content >= 2 then
+           send_frame @@ Frame.create
+             ~opcode:Frame.Opcode.Close
+             ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
+         else send_frame @@ Frame.close 1000
+        ) >|= fun () -> fr
+      | _ -> Lwt.return fr
+    in
+    {
+      random_string;
+      buffer;
+      flow;
+      ic;
+      oc;
+      http_request;
+      standard_frame_replies = false;
+      read_frame;
+      read_frame_std;
+      send_frame;
+    }
+
+  let recv t =
+    (if t.standard_frame_replies then t.read_frame_std else t.read_frame) ()
+
+  let send t frame =
+    t.send_frame frame
+
+  let http_request { http_request; _ } = http_request
+
+  let source { flow; _ } =
+    match flow with
+    | Conduit_lwt_unix.TCP tcp_flow ->
+      Some (tcp_flow.Conduit_lwt_unix.ip, tcp_flow.Conduit_lwt_unix.port)
+    | Conduit_lwt_unix.Domain_socket _ ->
+      None
+    | Conduit_lwt_unix.Vchan _ ->
+      None
+end
+
 let set_tcp_nodelay flow =
   let open Conduit_lwt_unix in
   match flow with
@@ -117,8 +185,7 @@ let establish_server ?timeout ?stop ?random_string
     ?(check_request=check_origin_with_host)
     ~ctx ~mode react =
   let module C = Cohttp in
-  let id = ref @@ -1 in
-  let server_fun id (ic, oc) =
+  let server_fun flow ic oc =
     (Request.read ic >>= function
       | `Ok r -> Lwt.return r
       | `Eof ->
@@ -154,21 +221,14 @@ let establish_server ?timeout ?stop ?random_string
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    let buf = Buffer.create 128 in
-    let send_frame fr =
-      Buffer.clear buf;
-      write_frame_to_buf ?random_string ~masked:false buf fr;
-      Lwt_io.write oc @@ Buffer.contents buf
-    in
-    let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
-    react id request read_frame send_frame
+    let client = Connected_client.create random_string request flow ic oc in
+    react client
   in
   Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
     (fun flow ic oc ->
        (try%lwt
          set_tcp_nodelay flow;
-         incr id;
-         server_fun !id (ic,oc)
+         server_fun flow ic oc
         with
         | End_of_file ->
           Lwt_log.info ~section "Client closed connection"
@@ -189,24 +249,8 @@ let mk_frame_stream recv =
 
 let establish_standard_server ?timeout ?stop ?random_string
     ?exception_handler ?check_request ~ctx ~mode react =
-  let f id req recv send =
-    let recv fr =
-      let%lwt fr = recv () in
-      match fr.Frame.opcode with
-      | Frame.Opcode.Ping ->
-          send @@ Frame.create
-            ~opcode:Frame.Opcode.Pong () >>= fun () -> Lwt.return fr
-      | Frame.Opcode.Close ->
-          (* Immediately echo and pass this last message to the user *)
-          (if String.length fr.Frame.content >= 2 then
-             send @@ Frame.create
-               ~opcode:Frame.Opcode.Close
-               ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
-           else send @@ Frame.close 1000
-          ) >>= fun () -> Lwt.return fr
-
-      | _ -> Lwt.return fr
-    in
-    react id req recv send
+  let f client =
+    client.Connected_client.standard_frame_replies <- true;
+    react client
   in
   establish_server ?timeout ?stop ?random_string ?exception_handler ?check_request ~ctx ~mode f

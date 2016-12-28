@@ -41,30 +41,33 @@ let client uri =
   in pushf () <?> react_forever ()
 
 let server uri =
-  let echo_fun id req recv send =
+  let id = ref (-1) in
+  let echo_fun client =
+    incr id;
+    let id = !id in
     let open Frame in
     let rec react () =
-      recv () >>= fun fr ->
+      Connected_client.recv client >>= fun fr ->
       Lwt_log.debug_f ~section "Client %d: %s" id Frame.(show fr) >>= fun () ->
       match fr.opcode with
       | Opcode.Ping ->
-        send Frame.(create ~opcode:Opcode.Pong ~content:fr.content ()) >>=
+        Connected_client.send client Frame.(create ~opcode:Opcode.Pong ~content:fr.content ()) >>=
         react
       | Opcode.Close ->
         (* Immediately echo and pass this last message to the user *)
         if String.length fr.content >= 2 then
           let content = String.sub fr.content 0 2 in
-          send Frame.(create ~opcode:Opcode.Close ~content ())
+          Connected_client.send client Frame.(create ~opcode:Opcode.Close ~content ())
         else
-          send @@ Frame.close 1000
+          Connected_client.send client @@ Frame.close 1000
       | Opcode.Pong ->
         react ()
       | Opcode.Text
       | Opcode.Binary ->
-        send fr >>=
+        Connected_client.send client fr >>=
         react
       | _ ->
-        send Frame.(close 1002)
+        Connected_client.send client Frame.(close 1002)
     in
     Lwt_log.info_f ~section "Connection from client id %d" id >>= fun () ->
     try%lwt react () with exn ->
