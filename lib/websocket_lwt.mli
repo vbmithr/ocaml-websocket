@@ -57,6 +57,8 @@ val with_connection :
   ((unit -> Frame.t Lwt.t) * (Frame.t -> unit Lwt.t)) Lwt.t
 
 val establish_server :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
@@ -79,6 +81,8 @@ val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
     is received, the stream will be closed. *)
 
 val establish_standard_server :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->

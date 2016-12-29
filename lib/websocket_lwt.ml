@@ -38,18 +38,23 @@ module Connected_client = struct
     oc: Request.IO.oc;
     http_request: Cohttp.Request.t;
     standard_frame_replies: bool;
+    read_frame: unit -> Frame.t Lwt.t;
   }
 
-  let create random_string http_request flow ic oc =
-    let buffer = Buffer.create 128 in
+  let create
+      ?read_buf
+      ?(write_buf=Buffer.create 128)
+      random_string http_request flow ic oc =
+    let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
     {
       random_string;
-      buffer;
+      buffer = write_buf;
       flow;
       ic;
       oc;
       http_request;
       standard_frame_replies = false;
+      read_frame;
     }
 
   let send { buffer; oc; random_string; _ } frame =
@@ -57,11 +62,8 @@ module Connected_client = struct
     write_frame_to_buf ?random_string ~masked:false buffer frame;
     Lwt_io.write oc @@ Buffer.contents buffer
 
-  let raw_recv { buffer; ic; oc; random_string; _ } =
-    make_read_frame ?random_string ~masked:false (ic, oc) ()
-
   let standard_recv t =
-    let%lwt fr = raw_recv t in
+    let%lwt fr = t.read_frame () in
     match fr.Frame.opcode with
     | Frame.Opcode.Ping ->
         send t @@ Frame.create
@@ -80,7 +82,7 @@ module Connected_client = struct
     if t.standard_frame_replies then
       standard_recv t
     else
-      raw_recv t
+      t.read_frame ()
 
   let http_request { http_request; _ } = http_request
 
@@ -179,7 +181,9 @@ let write_failed_response oc =
     Response.write_body writer "403 Forbidden"
   end response oc
 
-let establish_server ?timeout ?stop ?random_string
+let establish_server
+    ?read_buf ?write_buf
+    ?timeout ?stop ?random_string
     ?(exception_handler=(!Lwt.async_exception_hook))
     ?(check_request=check_origin_with_host)
     ~ctx ~mode react =
@@ -220,7 +224,8 @@ let establish_server ?timeout ?stop ?random_string
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
     Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
-    let client = Connected_client.create random_string request flow ic oc in
+    let client =
+      Connected_client.create ?read_buf ?write_buf random_string request flow ic oc in
     react client
   in
   Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
@@ -246,9 +251,12 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?timeout ?stop ?random_string
+let establish_standard_server
+    ?read_buf ?write_buf
+    ?timeout ?stop ?random_string
     ?exception_handler ?check_request ~ctx ~mode react =
   let f client =
     react (Connected_client.make_standard client)
   in
-  establish_server ?timeout ?stop ?random_string ?exception_handler ?check_request ~ctx ~mode f
+  establish_server ?read_buf ?write_buf ?timeout ?stop
+    ?random_string ?exception_handler ?check_request ~ctx ~mode f

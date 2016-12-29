@@ -180,9 +180,7 @@ module IO(IO: Cohttp.S.IO) = struct
     end;
     Buffer.add_bytes buf content
 
-  let make_read_frame ?random_string ~masked (ic,oc) =
-    let buf = Buffer.create 4096 in
-    let open Frame in
+  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked (ic,oc) =
     let close_with_code code =
       Buffer.clear buf;
       write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;
@@ -214,7 +212,7 @@ module IO(IO: Cohttp.S.IO) = struct
       else if extension <> 0 then
         close_with_code 1002 >>= fun () ->
         raise (Protocol_error "unsupported extension")
-      else if Opcode.is_ctrl opcode && payload_len > 125 then
+      else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
         close_with_code 1002 >>= fun () ->
         raise (Protocol_error "control frame too big")
       else
