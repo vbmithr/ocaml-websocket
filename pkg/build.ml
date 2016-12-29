@@ -83,7 +83,7 @@ let () =
   let ocamlbuild = setup_ocamlbuild () in
   Pkg.describe "websocket" ~builder:(`Other (ocamlbuild, "_build")) [
     Pkg.lib "pkg/META";
-    Pkg.lib ~exts:Exts.library "lib/websocket";
+    Pkg.lib ~exts:Exts.(".cmx" :: library) "lib/websocket";
     Pkg.lib ~exts:Exts.module_library "lib/rng";
     Pkg.lib ~cond:lwt ~exts:Exts.module_library "lib/websocket_lwt";
     Pkg.lib ~cond:async ~exts:Exts.module_library "lib/websocket_async";
