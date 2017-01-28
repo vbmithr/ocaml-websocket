@@ -150,7 +150,6 @@ module IO(IO: Cohttp.S.IO) = struct
   let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
-    let mask = random_string 4 in
     let content = Bytes.unsafe_of_string fr.content in
     let len = Bytes.length content in
     let opcode = Opcode.to_enum fr.opcode in
@@ -175,6 +174,7 @@ module IO(IO: Cohttp.S.IO) = struct
        Buffer.add_subbytes buf scratch 0 8;
     end;
     if masked then begin
+      let mask = random_string 4 in
       Buffer.add_string buf mask;
       if len > 0 then xor mask content;
     end;
