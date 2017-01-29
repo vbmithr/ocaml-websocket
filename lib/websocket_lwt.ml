@@ -163,7 +163,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
   let read_frame = make_read_frame ~random_string ~masked:true (ic, oc) in
   let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
   let buf = Buffer.create 128 in
-  (fun () -> Lwt.catch read_frame (fun exn -> Lwt.fail exn)),
+  read_frame,
   (fun frame ->
      try%lwt
        Buffer.clear buf;
