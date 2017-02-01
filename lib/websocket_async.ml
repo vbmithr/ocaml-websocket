@@ -98,17 +98,20 @@ let client
            Writer.write ws_to_net contents
         )
     in
-    Deferred.all_unit [
+    Deferred.any_unit [
       forward_frames_to_app ws_to_app;
-      forward_frames_to_net ws_to_net app_to_ws;
+      forward_frames_to_net ws_to_net app_to_ws ;
+      Pipe.closed app_to_ws ;
+      Pipe.closed ws_to_app ;
     ]
   in
   let finally_f () =
     Pipe.close_read app_to_ws;
-    Pipe.close ws_to_app;
-    Deferred.unit
+    Pipe.close ws_to_app
   in
-  Monitor.try_with_or_error ~name (fun () -> Monitor.protect ~finally:finally_f run)
+  Monitor.try_with_or_error ~name run >>| fun res ->
+  finally_f () ;
+  res
 
 let client_ez
     ?opcode
@@ -126,9 +129,11 @@ let client_ez
   let initialized = Ivar.create () in
   let last_pong = ref @@ Time_ns.epoch in
   let finally_f () =
-    Pipe.close_read to_reactor_write;
-    Pipe.close_read client_read;
-    Deferred.all_unit [Reader.close r; Writer.close w]
+    Pipe.close ws_to_app ;
+    Pipe.close_read app_to_ws ;
+    Pipe.close_read to_reactor_write ;
+    Pipe.close_read client_read ;
+    Deferred.unit
   in
   let watch w =
     Clock_ns.after wait_for_pong >>= fun () ->
@@ -185,9 +190,15 @@ let client_ez
   end;
   don't_wait_for begin
     Monitor.protect ~finally:finally_f begin fun () ->
-      client ?extra_headers ?log ?random_string ~initialized
-        ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri
-    end |> Deferred.ignore
+      Deferred.any_unit [
+        (client ?extra_headers ?log ?random_string ~initialized
+          ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri |> Deferred.ignore) ;
+        Deferred.all_unit [
+          Pipe.closed client_read ;
+          Pipe.closed client_write ;
+        ]
+      ]
+    end
   end;
   client_read, client_write
 
