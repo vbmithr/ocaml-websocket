@@ -47,7 +47,6 @@ val client_ez :
   ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
-  ?wait_for_pong:Time_ns.Span.t ->
   ?heartbeat:Time_ns.Span.t ->
   ?random_string:Rng.t ->
   Uri.t ->

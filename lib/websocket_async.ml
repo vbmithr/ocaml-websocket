@@ -75,42 +75,35 @@ let client
     Option.iter initialized (fun ivar -> Ivar.fill ivar ());
     let read_frame = make_read_frame ~random_string ~masked:true (net_to_ws, ws_to_net) in
     let buf = Buffer.create 128 in
-    (* this terminates -> net_to_ws && ws_to_net is closed *)
     let rec forward_frames_to_app ws_to_app =
-      if Pipe.is_closed ws_to_app then
+      read_frame () >>= fun fr ->
+      begin
+        if not @@ Pipe.is_closed ws_to_app then
+          Pipe.write ws_to_app fr else
         Deferred.unit
-      else
-        Monitor.try_with_or_error ~name:"Websocket.read_frame" read_frame >>= function
-        | Ok fr ->
-          Pipe.write ws_to_app fr >>= fun () ->
-          forward_frames_to_app ws_to_app
-        | Error err ->
-          Option.iter log ~f:(fun log -> Log.error log "%s" @@ Error.to_string_hum err);
-          Deferred.unit
+      end >>= fun () ->
+      forward_frames_to_app ws_to_app
     in
-    (* ws_to_net closed <-> app_to_ws closed *)
     let forward_frames_to_net ws_to_net app_to_ws =
-      Writer.transfer ws_to_net app_to_ws
-        (fun fr ->
-           Buffer.clear buf;
-           write_frame_to_buf ~random_string ~masked:true buf fr;
-           let contents = Buffer.contents buf in
-           Writer.write ws_to_net contents
-        )
+      Writer.transfer ws_to_net app_to_ws begin fun fr ->
+        Buffer.clear buf;
+        write_frame_to_buf ~random_string ~masked:true buf fr;
+        let contents = Buffer.contents buf in
+        Writer.write ws_to_net contents
+      end
     in
     Deferred.any_unit [
       forward_frames_to_app ws_to_app;
       forward_frames_to_net ws_to_net app_to_ws ;
-      Pipe.closed app_to_ws ;
-      Pipe.closed ws_to_app ;
+      Deferred.all_unit Pipe.[closed app_to_ws ; closed ws_to_app ; ] ;
     ]
   in
-  let finally_f () =
-    Pipe.close_read app_to_ws;
+  let finally_f = lazy begin
+    Pipe.close_read app_to_ws ;
     Pipe.close ws_to_app
-  in
+  end in
   Monitor.try_with_or_error ~name run >>| fun res ->
-  finally_f () ;
+  Lazy.force finally_f ;
   res
 
 let client_ez
@@ -118,41 +111,34 @@ let client_ez
     ?log
     ?(name="client_ez")
     ?extra_headers
-    ?(wait_for_pong=Time_ns.Span.of_int_sec 5)
-    ?(heartbeat=Time_ns.Span.zero)
+    ?heartbeat
     ?random_string
     uri
-    _s r w =
+    _s net_to_ws ws_to_net =
   let app_to_ws, reactor_write = Pipe.create () in
   let to_reactor_write, client_write = Pipe.create () in
   let client_read, ws_to_app = Pipe.create () in
   let initialized = Ivar.create () in
   let last_pong = ref @@ Time_ns.epoch in
-  let finally_f () =
+  let cleanup = lazy begin
     Pipe.close ws_to_app ;
     Pipe.close_read app_to_ws ;
     Pipe.close_read to_reactor_write ;
-    Pipe.close_read client_read ;
-    Deferred.unit
-  in
-  let watch w =
-    Clock_ns.after wait_for_pong >>= fun () ->
-    let time_since_last_pong = Time_ns.abs_diff !last_pong @@ Time_ns.now () in
-    if Time_ns.Span.(time_since_last_pong > wait_for_pong + of_int_sec 5)
-    then finally_f ()
-    else Deferred.unit
-  in
-  let rec keepalive w =
+    Pipe.close client_write
+  end in
+  let rec keepalive w heartbeat =
     Clock_ns.after heartbeat >>= fun () ->
-    if Pipe.is_closed w then
-      Deferred.unit
-    else begin
-      Option.iter log ~f:(fun log -> Log.debug log "-> PING");
-      Pipe.write w @@ Frame.create
-        ~opcode:Frame.Opcode.Ping
-        ~content:Time_ns.(now () |> to_string_fix_proto `Utc) () >>= fun () ->
-      don't_wait_for @@ watch w;
-      keepalive w
+    let now = Time_ns.now () in
+    Option.iter log ~f:(fun log -> Log.debug log "-> PING");
+    Pipe.write w @@ Frame.create
+      ~opcode:Frame.Opcode.Ping
+      ~content:(Time_ns.to_string_fix_proto `Utc now) () >>= fun () -> begin
+      if !last_pong > Time_ns.epoch then begin
+        let time_since_last_pong = Time_ns.abs_diff !last_pong now in
+        if Time_ns.Span.(time_since_last_pong > heartbeat + heartbeat) then
+          Lazy.force cleanup
+      end ;
+      keepalive w heartbeat
     end
   in
   let react w fr =
@@ -178,27 +164,27 @@ let client_ez
         Pipe.write w @@ Frame.close 1002 >>| fun () -> Pipe.close w; None
   in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
-  don't_wait_for begin
-    Ivar.read initialized >>= fun () -> Deferred.all_unit [
+  let react () =
+    Ivar.read initialized >>= fun () -> Deferred.any_unit [
       Pipe.transfer to_reactor_write reactor_write
         ~f:(fun content -> Frame.create ?opcode ~content ());
-      if heartbeat <> Time_ns.Span.zero then
-        keepalive reactor_write
-      else
-        Deferred.unit
+      (match heartbeat with
+      | None -> Deferred.never ()
+      | Some span ->
+        Monitor.handle_errors (fun () -> keepalive reactor_write span) ignore)
     ]
-  end;
+  in
   don't_wait_for begin
-    Monitor.protect ~finally:finally_f begin fun () ->
-      Deferred.any_unit [
-        (client ?extra_headers ?log ?random_string ~initialized
-          ~app_to_ws ~ws_to_app ~net_to_ws:r ~ws_to_net:w uri |> Deferred.ignore) ;
-        Deferred.all_unit [
-          Pipe.closed client_read ;
-          Pipe.closed client_write ;
+    Monitor.protect
+      ~finally:(fun () -> Lazy.force cleanup ; Deferred.unit)
+      begin fun () ->
+        Deferred.any_unit [
+          (client ?extra_headers ?log ?random_string ~initialized
+             ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore) ;
+          react () ;
+          Deferred.all_unit Pipe.[closed client_read ; closed client_write ; ]
         ]
-      ]
-    end
+      end
   end;
   client_read, client_write
 
