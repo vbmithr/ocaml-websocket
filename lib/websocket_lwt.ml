@@ -86,14 +86,19 @@ module Connected_client = struct
 
   let http_request { http_request; _ } = http_request
 
-  let source { flow; _ } =
+  type source =
+    | TCP of Ipaddr.t * int
+    | Domain_socket of string
+    | Vchan of Conduit_lwt_unix.vchan_flow
+
+  let source { flow; _ } : source =
     match flow with
     | Conduit_lwt_unix.TCP tcp_flow ->
-      Some (tcp_flow.Conduit_lwt_unix.ip, tcp_flow.Conduit_lwt_unix.port)
-    | Conduit_lwt_unix.Domain_socket _ ->
-      None
-    | Conduit_lwt_unix.Vchan _ ->
-      None
+      TCP (tcp_flow.Conduit_lwt_unix.ip, tcp_flow.Conduit_lwt_unix.port)
+    | Conduit_lwt_unix.Domain_socket { path } ->
+      Domain_socket path
+    | Conduit_lwt_unix.Vchan flow ->
+      Vchan flow
 
   let make_standard t = { t with standard_frame_replies = true }
 end
