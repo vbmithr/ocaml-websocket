@@ -31,6 +31,11 @@ module Frame : module type of Websocket.Frame
 module Connected_client : sig
   type t
 
+  type source =
+    | TCP of Ipaddr.t * int
+    | Domain_socket of string
+    | Vchan of Conduit_lwt_unix.vchan_flow
+
   val send : t -> Frame.t -> unit Lwt.t
 
   val recv : t -> Frame.t Lwt.t
@@ -39,9 +44,8 @@ module Connected_client : sig
   (** [http_request] returns the http request that initialized this websocket
       connection *)
 
-  val source : t -> (Ipaddr.t * int) option
-  (** [source] returns a tuple of the client's IP address and source port if the
-      connection was established via tcp *)
+  val source : t -> source
+  (** [source t] is the source address of [t]. *)
 end
 
 val check_origin_with_host : Cohttp.Request.t -> bool
