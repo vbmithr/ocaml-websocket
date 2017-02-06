@@ -7,13 +7,17 @@ homepage: "https://github.com/vbmithr/ocaml-websocket"
 bug-reports: "https://github.com/vbmithr/ocaml-websocket/issues"
 dev-repo: "git://github.com/vbmithr/ocaml-websocket"
 
+available: [
+  ocaml-version >= "4.02.0"
+]
+
 tags: [
   "org:mirage"
   "org:xapi-project"
 ]
 build: [
-  ["ocaml" "pkg/build.ml" "native=%{ocaml:native}%"
-                          "native-dynlink=%{ocaml:native-dynlink}%"
+  ["ocaml" "pkg/build.ml" "native=%{ocaml-native}%"
+                          "native-dynlink=%{ocaml-native-dynlink}%"
                           "lwt=%{lwt:installed}%"
                           "async=%{async:installed}%"
                           "async_ssl=%{async_ssl:installed}%"
@@ -23,7 +27,6 @@ build: [
   ]
 ]
 depends: [
-  "ocaml" {>= "4.02.0"}
   "cppo" {build}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}

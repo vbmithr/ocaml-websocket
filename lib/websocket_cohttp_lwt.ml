@@ -15,7 +15,7 @@
  *
  *)
 
-open Websocket
+include Websocket
 
 module C = Cohttp
 module Lwt_IO = Websocket.IO(Cohttp_lwt_unix_io)
