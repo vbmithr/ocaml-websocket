@@ -1,9 +1,11 @@
 open Lwt
+open Websocket_cohttp_lwt
 
 let handler
     (conn : Conduit_lwt_unix.flow * Cohttp.Connection.t)
     (req  : Cohttp_lwt_unix.Request.t)
     (body : Cohttp_lwt_body.t) =
+  let open Frame in
   Lwt_io.eprintf
         "[CONN] %s\n%!" (Cohttp.Connection.to_string @@ snd conn)
   >>= fun _ ->
@@ -44,11 +46,11 @@ let handler
     >>= fun () ->
     Websocket_cohttp_lwt.upgrade_connection req (fst conn) (
         fun f ->
-            match f.Websocket.Frame.opcode with
-            | Websocket.Frame.Opcode.Close ->
+            match f.opcode with
+            | Opcode.Close ->
                 Printf.eprintf "[RECV] CLOSE\n%!"
             | _ ->
-                Printf.eprintf "[RECV] %s\n%!" f.Websocket.Frame.content
+                Printf.eprintf "[RECV] %s\n%!" f.content
     )
     >>= fun (resp, body, frames_out_fn) ->
     (* send a message to the client every second *)
@@ -61,7 +63,7 @@ let handler
                 >>= fun () ->
                 Lwt.wrap1 frames_out_fn @@
                     Some (
-                        Websocket.Frame.of_bytes @@
+                        of_bytes @@
                         BytesLabels.of_string @@
                         msg
                     )
