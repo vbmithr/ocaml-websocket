@@ -119,6 +119,7 @@ let client_ez
   let to_reactor_write, client_write = Pipe.create () in
   let client_read, ws_to_app = Pipe.create () in
   let initialized = Ivar.create () in
+  let initialized_d = Ivar.read initialized in
   let last_pong = ref @@ Time_ns.epoch in
   let cleanup = lazy begin
     Pipe.close ws_to_app ;
@@ -126,20 +127,16 @@ let client_ez
     Pipe.close_read to_reactor_write ;
     Pipe.close client_write
   end in
-  let rec keepalive w heartbeat =
-    Clock_ns.after heartbeat >>= fun () ->
+  let send_ping w span =
     let now = Time_ns.now () in
     Option.iter log ~f:(fun log -> Log.debug log "-> PING");
     Pipe.write w @@ Frame.create
       ~opcode:Frame.Opcode.Ping
-      ~content:(Time_ns.to_string_fix_proto `Utc now) () >>= fun () -> begin
-      if !last_pong > Time_ns.epoch then begin
-        let time_since_last_pong = Time_ns.abs_diff !last_pong now in
-        if Time_ns.Span.(time_since_last_pong > heartbeat + heartbeat) then
-          Lazy.force cleanup
-      end ;
-      keepalive w heartbeat
-    end
+      ~content:(Time_ns.to_string_fix_proto `Utc now) () >>| fun () ->
+    let time_since_last_pong = Time_ns.diff now !last_pong in
+    if !last_pong > Time_ns.epoch
+    && Time_ns.Span.(time_since_last_pong > span + span) then
+      Lazy.force cleanup
   in
   let react w fr =
     let open Frame in
@@ -165,15 +162,18 @@ let client_ez
   in
   let client_read = Pipe.filter_map' client_read ~f:(react reactor_write) in
   let react () =
-    Ivar.read initialized >>= fun () -> Deferred.any_unit [
-      Pipe.transfer to_reactor_write reactor_write
-        ~f:(fun content -> Frame.create ?opcode ~content ());
-      (match heartbeat with
-      | None -> Deferred.never ()
-      | Some span ->
-        Monitor.handle_errors (fun () -> keepalive reactor_write span) ignore)
-    ]
-  in
+    initialized_d >>= fun () ->
+    Pipe.transfer to_reactor_write reactor_write ~f:(fun content ->
+        Frame.create ?opcode ~content ()) in
+  (* Run send_ping every heartbeat when heartbeat is set. *)
+  don't_wait_for begin match heartbeat with
+  | None -> Deferred.unit
+  | Some span -> initialized_d >>| fun () ->
+    Clock_ns.run_at_intervals'
+      ~continue_on_error:false
+      ~stop:(Pipe.closed reactor_write)
+      span (fun () -> send_ping reactor_write span)
+  end ;
   don't_wait_for begin
     Monitor.protect
       ~finally:(fun () -> Lazy.force cleanup ; Deferred.unit)
@@ -182,7 +182,7 @@ let client_ez
           (client ?extra_headers ?log ?random_string ~initialized
              ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore) ;
           react () ;
-          Deferred.all_unit Pipe.[closed client_read ; closed client_write ; ]
+          Deferred.all_unit Pipe.[ closed client_read ; closed client_write ; ]
         ]
       end
   end;
