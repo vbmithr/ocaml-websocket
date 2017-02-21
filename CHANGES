@@ -1,3 +1,14 @@
+2.7 (2017-02-21)
+
+* new websocket.cohttp package to upgrade to websocket from cohttp (@SimonJF)
+* lwt: function `source' now covers all conduit cases
+* async: refactoring and fixes
+* perf improvement (Avoid generating xor mask if it isn't used) (@copy)
+* remove dependency to containers library
+* lwt: Add callback to check origin before websocket connection (@copy)
+* lwt: Improve error handling in lwt server (@copy)
+* async: more efficient logging
+
 2.6 (2016-09-17)
 * async: client_ez: kill the connection on absence of PONG reply
 * async: client_ez: fix PONG watch code
