@@ -1,5 +1,8 @@
-2.7 (2017-02-21)
+2.8 (2017-03-01)
+* drop dependency to ppx_deriving
+* bugfix: fix corrupted received frame (@zoggy)
 
+2.7 (2017-02-21)
 * new websocket.cohttp package to upgrade to websocket from cohttp (@SimonJF)
 * lwt: function `source' now covers all conduit cases
 * async: refactoring and fixes
