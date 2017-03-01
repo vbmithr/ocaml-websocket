@@ -217,9 +217,10 @@ module IO(IO: Cohttp.S.IO) = struct
         raise (Protocol_error "control frame too big")
       else
         (if frame_masked then
+           (Buffer.clear buf;
            read_exactly ic 4 buf >>= function
            | None -> raise (Protocol_error "could not read mask");
-           | Some mask -> return mask
+           | Some mask -> return mask)
          else return String.empty) >>= fun mask ->
         if payload_len = 0 then
           return @@ Frame.create ~opcode ~extension ~final ()
