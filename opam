@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "websocket"
-version: "2.7"
+version: "2.8"
 authors: "Vincent Bernardoff <vb@luminar.eu.org>"
 maintainer: "Vincent Bernardoff <vb@luminar.eu.org>"
 homepage: "https://github.com/vbmithr/ocaml-websocket"
@@ -30,7 +30,6 @@ depends: [
   "cppo" {build}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}
-  "ppx_deriving" {>= "2.0"}
   "astring"
 ]
 

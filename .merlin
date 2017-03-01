@@ -8,8 +8,6 @@ PKG lwt.ppx
 PKG cohttp
 PKG tls.lwt
 PKG ocplib-endian
-PKG containers
-PKG ppx_deriving.std
 PKG conduit.lwt-unix
 PKG nocrypto
 PKG core

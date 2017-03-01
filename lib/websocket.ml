@@ -49,7 +49,19 @@ module Frame = struct
       | Ping
       | Pong
       | Ctrl of int
-      | Nonctrl of int [@@deriving show]
+      | Nonctrl of int
+
+    let to_string = function
+    | Continuation -> "continuation"
+    | Text -> "text"
+    | Binary -> "binary"
+    | Close -> "close"
+    | Ping -> "ping"
+    | Pong -> "pong"
+    | Ctrl i -> "ctrl " ^ string_of_int i
+    | Nonctrl i -> "nonctrl " ^ string_of_int i
+
+    let pp ppf t = Format.fprintf ppf "%s" (to_string t)
 
     let min = 0x0
     let max = 0xf
@@ -79,11 +91,21 @@ module Frame = struct
   end
 
   type t = {
-    opcode: Opcode.t [@default Opcode.Text];
-    extension: int [@default 0];
-    final: bool [@default true];
-    content: string [@default ""];
-  } [@@deriving create,show]
+    opcode: Opcode.t ;
+    extension: int ;
+    final: bool ;
+    content: string ;
+  }
+
+  let pp ppf { opcode ; extension ; final ; content } =
+    Format.fprintf ppf
+      "[%a (0x%x) (final=%b) %s]" Opcode.pp opcode extension final content
+
+  let show t = Format.asprintf "%a" pp t
+
+  let create
+      ?(opcode = Opcode.Text) ?(extension=0) ?(final=true) ?(content="") () =
+    { opcode ; extension ; final ; content }
 
   let of_bytes ?opcode ?extension ?final content =
     let content = Bytes.unsafe_to_string content in

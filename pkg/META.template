@@ -1,6 +1,6 @@
 version = "%%VERSION%%"
 description = "Websocket library"
-requires = "ppx_deriving.std cohttp ocplib-endian astring %%META_REQ%%"
+requires = "cohttp ocplib-endian astring %%META_REQ%%"
 archive(byte) = "websocket.cma"
 archive(byte, plugin) = "websocket.cma"
 archive(native) = "websocket.cmxa"
