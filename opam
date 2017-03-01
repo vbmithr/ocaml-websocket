@@ -30,7 +30,6 @@ depends: [
   "cppo" {build}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}
-  "ppx_deriving" {>= "2.0"}
   "astring"
 ]
 

@@ -4,8 +4,7 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
 <tests>: include
 
 
-<lib/websocket.*>: package(ppx_deriving.std), \
-                   package(cohttp), \
+<lib/websocket.*>: package(cohttp), \
                    package(ocplib-endian), \
                    package(astring)
 
@@ -13,7 +12,6 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
                        package(lwt.ppx), \
                        package(uri), \
                        package(cohttp.lwt), \
-                       package(ppx_deriving.std), \
                        package(conduit), \
                        package(astring)
 
@@ -26,7 +24,6 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
 <lib/websocket_async.*>: package(async), \
                        package(uri), \
                        package(cohttp.async), \
-                       package(ppx_deriving.std), \
                        package(conduit), \
                        thread
 
@@ -34,13 +31,11 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
              package(lwt.ppx), \
              package(uri), \
              package(cohttp.lwt), \
-             package(ppx_deriving.std), \
              package(conduit), \
              package(astring)
 
 <tests/wscat_async.*>: package(core), \
                        package(async), \
-                       package(ppx_deriving.std), \
                        thread, \
                        package(uri), \
                        package(cohttp.async), \
@@ -52,5 +47,4 @@ true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-5
     package(conduit), \
     package(lwt), \
     package(lwt.ppx), \
-    package(ppx_deriving), \
     package(astring)
