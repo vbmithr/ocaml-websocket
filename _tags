@@ -1,4 +1,4 @@
-true: bin_annot, debug, safe_string, warn(-40), warn_error(A-26-39-32-27-45-52-58)
+true: bin_annot, debug, safe_string, warn(+3), warn_error(A-3-26-39-32-27-40-45-52-58)
 
 <lib>: include
 <tests>: include
