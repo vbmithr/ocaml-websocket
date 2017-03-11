@@ -2,7 +2,7 @@ open Core.Std
 open Async.Std
 open Log.Global
 
-open Websocket_async
+module W = Websocket_async
 
 let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
@@ -22,7 +22,7 @@ let client protocol extensions uri =
     let extra_headers = Option.value_map extensions ~default:extra_headers
         ~f:(fun exts -> C.Header.add extra_headers "Sec-Websocket-Extensions" exts)
     in
-    let r, w = client_ez
+    let r, w = W.client_ez
         ~extra_headers
         ~log:Lazy.(force log)
         ~heartbeat:Time_ns.Span.(of_int_sec 5) uri s r w
@@ -34,57 +34,54 @@ let client protocol extensions uri =
   in
   Tcp.(with_connection (to_host_and_port host port) tcp_fun)
 
-let server uri =
-  let port = Option.value_exn
-      ~message:"no port inferred from scheme"
-      Uri_services.(tcp_port_of_uri uri)
+let handle_client addr reader writer =
+  let addr_str = Socket.Address.(to_string addr) in
+  info "Client connection from %s" addr_str;
+  let app_to_ws, sender_write = Pipe.create () in
+  let receiver_read, ws_to_app = Pipe.create () in
+  let request_cb req =
+    let req_str = Format.asprintf "%a" Cohttp.Request.pp_hum req in
+    info "Incoming connnection request: %s" req_str ;
+    Deferred.unit
   in
-  Tcp.Server.create (Tcp.on_port port) begin fun addr reader writer ->
-    let addr_str = Socket.Address.(to_string addr) in
-    info "Client connection from %s" addr_str;
-    let app_to_ws, sender_write = Pipe.create () in
-    let receiver_read, ws_to_app = Pipe.create () in
-    let inet_addr = match addr with `Inet _ as a -> a in
-    let finished = server
-        ~log:Lazy.(force log) ~app_to_ws ~ws_to_app ~reader ~writer inet_addr
-    in
-    let send = Pipe.write sender_write in
-    let rec loop () =
-      Pipe.read receiver_read >>= function
-      | `Eof ->
-        info "Client %s disconnected" addr_str;
-        Deferred.unit
-      | `Ok ({ Frame.opcode; extension; final; content } as frame) ->
-        let open Frame in
-        debug "<- %s" Frame.(show frame);
-        let frame', closed =
-          match opcode with
-          | Opcode.Ping -> Some Frame.(create ~opcode:Opcode.Pong ~content ()), false
-          | Opcode.Close ->
-            (* Immediately echo and pass this last message to the user *)
-            if String.length content >= 2 then
-              Some Frame.(create ~opcode:Opcode.Close
-                            ~content:(String.sub content 0 2) ()), true
-            else
-              Some Frame.(close 100), true
-          | Opcode.Pong -> None, false
-          | Opcode.Text
-          | Opcode.Binary -> Some frame, false
-          | _ -> Some Frame.(close 1002), false
-        in
-        begin
-          match frame' with
-          | None ->
-            Deferred.unit
-          | Some frame' ->
-            debug "-> %s" Frame.(show frame');
-            send frame'
-        end >>= fun () ->
-        if closed then Deferred.unit
-        else loop ()
-    in
-    Deferred.any [loop (); finished]
-  end >>| ignore
+  let finished = W.server ~log:Lazy.(force log)
+      ~request_cb ~app_to_ws ~ws_to_app ~reader ~writer () in
+  let send = Pipe.write sender_write in
+  let rec loop () =
+    Pipe.read receiver_read >>= function
+    | `Eof ->
+      info "Client %s disconnected" addr_str;
+      Deferred.unit
+    | `Ok ({ W.Frame.opcode; extension; final; content } as frame) ->
+      let open W.Frame in
+      debug "<- %s" W.Frame.(show frame);
+      let frame', closed =
+        match opcode with
+        | Opcode.Ping -> Some (create ~opcode:Opcode.Pong ~content ()), false
+        | Opcode.Close ->
+          (* Immediately echo and pass this last message to the user *)
+          if String.length content >= 2 then
+            Some (create ~opcode:Opcode.Close
+                          ~content:(String.sub content 0 2) ()), true
+          else
+          Some (close 100), true
+        | Opcode.Pong -> None, false
+        | Opcode.Text
+        | Opcode.Binary -> Some frame, false
+        | _ -> Some (close 1002), false
+      in
+      begin
+        match frame' with
+        | None ->
+          Deferred.unit
+        | Some frame' ->
+          debug "-> %s" (show frame');
+          send frame'
+      end >>= fun () ->
+      if closed then Deferred.unit
+      else loop ()
+  in
+  Deferred.any [loop (); finished]
 
 let command =
   let spec =
@@ -101,12 +98,20 @@ let command =
     | 3 -> set_level `Debug
     | _ -> ()
   in
-  let run protocol extension loglevel is_server url =
+  let run protocol extension loglevel is_server url () =
     Option.iter loglevel ~f:set_loglevel;
     let url = Uri.of_string url in
-    don't_wait_for @@ if is_server then server url else client protocol extension url;
-    never_returns @@ Scheduler.go ()
+    match is_server with
+    | false -> client protocol extension url
+    | true ->
+      let port = Option.value_exn
+          ~message:"no port inferred from scheme"
+          Uri_services.(tcp_port_of_uri url) in
+      Tcp.(Server.create
+             ~on_handler_error:`Ignore
+             (on_port port) handle_client) >>=
+      Tcp.Server.close_finished
   in
-  Command.basic ~summary:"telnet-like interface to Websockets" spec run
+  Command.async ~summary:"telnet-like interface to Websockets" spec run
 
 let () = Command.run command

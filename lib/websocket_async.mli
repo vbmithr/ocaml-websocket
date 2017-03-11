@@ -57,11 +57,19 @@ val client_ez :
 
 val server :
   ?log:Log.t ->
-  ?name:string ->
   ?random_string:Rng.t ->
+  ?request_cb:(Cohttp.Request.t -> unit Deferred.t) ->
+  reader:Reader.t ->
+  writer:Writer.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
-  reader:(Reader.t) ->
-  writer:(Writer.t) ->
-  Socket.Address.t ->
-  unit Deferred.t
+  unit -> unit Deferred.t
+(** [server ?log ?random_string ?request_cb reader writer app_to_ws
+    ws_to_app ()] returns a thread that expects a websocket client
+    connected to [reader]/[writer] and, after performing the
+    handshake, will resp. read outgoing frames from [app_to_ws] and
+    write incoming frames to [ws_to_app]. The thread is determined if
+    any of [reader], [writer], [app_to_ws], [ws_to_app] is closed. If
+    case of an error, [app_to_ws] and [ws_to_app] will be closed. Upon
+    reception of the client HTTP request, [request_cb] will be called
+    with the request as its argument. *)
