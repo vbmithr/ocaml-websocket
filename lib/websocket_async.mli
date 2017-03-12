@@ -63,7 +63,7 @@ val server :
   writer:Writer.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
-  unit -> unit Deferred.t
+  unit -> unit Deferred.Or_error.t
 (** [server ?log ?random_string ?request_cb reader writer app_to_ws
     ws_to_app ()] returns a thread that expects a websocket client
     connected to [reader]/[writer] and, after performing the

@@ -194,7 +194,7 @@ let server
     ?(request_cb = fun _ -> return None)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
-  let server_fun r w =
+  let handshake r w =
     (Request_async.read r >>| function
       | `Ok r -> r
       | `Eof ->
@@ -209,26 +209,27 @@ let server
           Log.info log "Invalid input from remote endpoint: %s" reason
         end ;
         failwith reason) >>= fun request ->
-    request_cb request >>= fun cb_response ->
-    begin match cb_response with
-    | Some response ->
-      Response_async.write (fun writer -> Deferred.unit) response w
-      >>= fun () ->
-      failwith "Callback termination"
-    | None -> return ()
+    begin
+      request_cb request >>= function
+      | Some response ->
+        Response_async.write
+          (fun writer -> Deferred.unit) response w >>= fun () ->
+        raise Exit
+      | None -> Deferred.unit
     end >>= fun () ->
     let meth    = Request.meth request in
     let version = Request.version request in
     let headers = Request.headers request in
-    if not (
+    if not begin
         version = `HTTP_1_1
         && meth = `GET
-        && Header.get headers "upgrade" |> Option.map ~f:String.lowercase  = Some "websocket"
+        && Option.map (Header.get headers "upgrade") ~f:String.lowercase = Some "websocket"
         && upgrade_present headers
-      )
+      end
     then failwith "Protocol error";
     let key = Option.value_exn
-        ~message:"missing sec-websocket-key" (Header.get headers "sec-websocket-key") in
+        ~message:"missing sec-websocket-key"
+        (Header.get headers "sec-websocket-key") in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = Header.of_list
         ["Upgrade", "websocket";
@@ -240,31 +241,35 @@ let server
         ~headers:response_headers () in
     Response_async.write (fun writer -> Deferred.unit) response w
   in
-  server_fun reader writer >>= fun () ->
-  set_tcp_nodelay writer;
-  let read_frame = make_read_frame ?random_string ~masked:true (reader, writer) in
-  let rec loop () =
-    read_frame () >>=
-    Pipe.write ws_to_app >>=
-    loop
-  in
-  let buf = Buffer.create 128 in
-  let transfer_end =
-    Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
-      Buffer.clear buf;
-      write_frame_to_buf ?random_string ~masked:false buf fr;
-      Buffer.contents buf
-    end
-  in
-  Monitor.protect
-    ~finally:begin fun () ->
-      Pipe.close ws_to_app ;
-      Pipe.close_read app_to_ws ;
-      Deferred.unit
-    end begin fun () ->
+  Monitor.try_with_or_error
+    ~extract_exn:true (fun () -> handshake reader writer) |>
+  Deferred.Or_error.bind ~f:begin fun () ->
+    set_tcp_nodelay writer;
+    let read_frame =
+      make_read_frame ?random_string ~masked:true (reader, writer) in
+    let rec loop () =
+      read_frame () >>=
+      Pipe.write ws_to_app >>=
+      loop
+    in
+    let transfer_end =
+      let buf = Buffer.create 128 in
+      Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
+        Buffer.clear buf;
+        write_frame_to_buf ?random_string ~masked:false buf fr;
+        Buffer.contents buf
+      end
+    in
+    Monitor.protect
+      ~finally:begin fun () ->
+        Pipe.close ws_to_app ;
+        Pipe.close_read app_to_ws ;
+        Deferred.unit
+      end begin fun () ->
       Deferred.any
         [transfer_end;
          loop ();
          Pipe.closed ws_to_app;
          Pipe.closed app_to_ws]
-    end
+    end >>= Deferred.Or_error.return
+  end

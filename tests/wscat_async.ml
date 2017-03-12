@@ -28,7 +28,9 @@ let client protocol extensions uri =
         ~heartbeat:Time_ns.Span.(of_int_sec 5) uri s r w
     in
     Deferred.all_unit [
-      Pipe.transfer Reader.(pipe @@ Lazy.force stdin) w ~f:(fun s -> String.chop_suffix_exn s ~suffix:"\n");
+      Pipe.transfer Reader.(pipe @@ Lazy.force stdin) w ~f:begin fun s ->
+        String.chop_suffix_exn s ~suffix:"\n"
+      end;
       Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
     ]
   in
@@ -47,9 +49,6 @@ let handle_client addr reader writer =
     else return (Some Cohttp.Response.(
         make ~status:`Bad_request ~encoding:Cohttp.Transfer.(Fixed 0L) ()))
   in
-  let finished = W.server ~log:Lazy.(force log)
-      ~request_cb ~app_to_ws ~ws_to_app ~reader ~writer () in
-  let send = Pipe.write sender_write in
   let rec loop () =
     Pipe.read receiver_read >>= function
     | `Eof ->
@@ -79,12 +78,20 @@ let handle_client addr reader writer =
           Deferred.unit
         | Some frame' ->
           debug "-> %s" (show frame');
-          send frame'
+          Pipe.write sender_write frame'
       end >>= fun () ->
       if closed then Deferred.unit
       else loop ()
   in
-  Deferred.any [loop (); finished]
+  Deferred.any [
+    begin W.server ~log:Lazy.(force log)
+        ~request_cb ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
+      | Error err when Error.to_exn err = Exit -> Deferred.unit
+      | Error err -> Error.raise err
+      | Ok () -> Deferred.unit
+    end ;
+    loop () ;
+  ]
 
 let command =
   let spec =
