@@ -72,4 +72,6 @@ val server :
     any of [reader], [writer], [app_to_ws], [ws_to_app] is closed. If
     case of an error, [app_to_ws] and [ws_to_app] will be closed. Upon
     reception of the client HTTP request, [request_cb] will be called
-    with the request as its argument. *)
+    with the request as its argument. If [request_cb] returns None,
+    the connection will proceed, otherwise, the result is immediately
+    determined to [Error Exit]. *)
