@@ -191,7 +191,7 @@ let client_ez
 let server
     ?log
     ?random_string
-    ?(request_cb = fun _ -> Deferred.unit)
+    ?(request_cb = fun _ -> return None)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
   let server_fun r w =
@@ -209,7 +209,14 @@ let server
           Log.info log "Invalid input from remote endpoint: %s" reason
         end ;
         failwith reason) >>= fun request ->
-    request_cb request >>= fun () ->
+    request_cb request >>= fun cb_response ->
+    begin match cb_response with
+    | Some response ->
+      Response_async.write (fun writer -> Deferred.unit) response w
+      >>= fun () ->
+      failwith "Callback termination"
+    | None -> return ()
+    end >>= fun () ->
     let meth    = Request.meth request in
     let version = Request.version request in
     let headers = Request.headers request in

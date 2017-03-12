@@ -42,7 +42,10 @@ let handle_client addr reader writer =
   let request_cb req =
     let req_str = Format.asprintf "%a" Cohttp.Request.pp_hum req in
     info "Incoming connnection request: %s" req_str ;
-    Deferred.unit
+    if Cohttp.Request.(uri req |> Uri.path) = "/ws"
+    then return None (* Accept the client and go establish *)
+    else return (Some Cohttp.Response.(
+        make ~status:`Bad_request ~encoding:Cohttp.Transfer.(Fixed 0L) ()))
   in
   let finished = W.server ~log:Lazy.(force log)
       ~request_cb ~app_to_ws ~ws_to_app ~reader ~writer () in
