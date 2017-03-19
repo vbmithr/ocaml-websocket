@@ -2,6 +2,7 @@ S lib
 S tests
 B _build/lib
 B _build/tests
+FLG -w -40
 PKG lwt
 PKG lwt.unix
 PKG lwt.ppx
