@@ -191,7 +191,7 @@ let client_ez
 let server
     ?log
     ?random_string
-    ?(request_cb = fun _ -> return None)
+    ?(check_request = fun _ -> Deferred.return true)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
   let handshake r w =
@@ -210,12 +210,18 @@ let server
         end ;
         failwith reason) >>= fun request ->
     begin
-      request_cb request >>= function
-      | Some response ->
-        Response_async.write
-          (fun writer -> Deferred.unit) response w >>= fun () ->
+      check_request request >>= function
+      | true -> Deferred.unit
+      | false ->
+        let body = "403 Forbidden" in
+        let response = Cohttp.Response.make
+            ~status:`Forbidden ()
+            ~encoding:(Cohttp.Transfer.Fixed (String.length body |> Int64.of_int)) in
+        let open Response_async in
+        write ~flush:true
+          (fun w -> write_body w body)
+          response w >>= fun () ->
         raise Exit
-      | None -> Deferred.unit
     end >>= fun () ->
     let meth    = Request.meth request in
     let version = Request.version request in

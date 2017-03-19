@@ -41,13 +41,10 @@ let handle_client addr reader writer =
   info "Client connection from %s" addr_str;
   let app_to_ws, sender_write = Pipe.create () in
   let receiver_read, ws_to_app = Pipe.create () in
-  let request_cb req =
+  let check_request req =
     let req_str = Format.asprintf "%a" Cohttp.Request.pp_hum req in
     info "Incoming connnection request: %s" req_str ;
-    if Cohttp.Request.(uri req |> Uri.path) = "/ws"
-    then return None (* Accept the client and go establish *)
-    else return (Some Cohttp.Response.(
-        make ~status:`Bad_request ~encoding:Cohttp.Transfer.(Fixed 0L) ()))
+    Deferred.return (Cohttp.Request.(uri req |> Uri.path) = "/ws")
   in
   let rec loop () =
     Pipe.read receiver_read >>= function
@@ -85,7 +82,7 @@ let handle_client addr reader writer =
   in
   Deferred.any [
     begin W.server ~log:Lazy.(force log)
-        ~request_cb ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
+        ~check_request ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
       | Error err when Error.to_exn err = Exit -> Deferred.unit
       | Error err -> Error.raise err
       | Ok () -> Deferred.unit
