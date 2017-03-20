@@ -13,7 +13,7 @@ let cryptokit = Env.bool "cryptokit"
 let test = Env.bool "test"
 
 let ocamlbuild = "ocamlbuild -use-ocamlfind -classic-display -plugin-tag 'package(cppo_ocamlbuild)'"
-let version = "2.8"
+let version = "2.9"
 
 let generate_meta () =
   (* add in any deps *)
