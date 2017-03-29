@@ -177,19 +177,23 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
      with exn -> Lwt.fail exn)
 
 let write_failed_response oc =
+  let body = "403 Forbidden" in
+  let body_len = String.length body |> Int64.of_int in
   let response = Cohttp.Response.make
       ~status:`Forbidden
-      ~encoding:Cohttp.Transfer.Unknown
+      ~encoding:(Cohttp.Transfer.Fixed body_len)
       ()
   in
-  Response.write ~flush:true begin fun writer ->
-    Response.write_body writer "403 Forbidden"
-  end response oc
+  let open Response in
+  write
+    ~flush:true
+    (fun writer -> write_body writer body)
+    response oc
 
 let establish_server
     ?read_buf ?write_buf
     ?timeout ?stop ?random_string
-    ?(exception_handler=(!Lwt.async_exception_hook))
+    ?on_exn
     ?(check_request=check_origin_with_host)
     ~ctx ~mode react =
   let module C = Cohttp in
@@ -233,19 +237,10 @@ let establish_server
       Connected_client.create ?read_buf ?write_buf random_string request flow ic oc in
     react client
   in
-  Conduit_lwt_unix.serve ?timeout ?stop ~ctx ~mode
-    (fun flow ic oc ->
-       (try%lwt
-         set_tcp_nodelay flow;
-         server_fun flow ic oc
-        with
-        | End_of_file ->
-          Lwt_log.info ~section "Client closed connection"
-        | Exit ->
-          Lwt_log.info ~section "Server closed connection"
-        | exn -> exception_handler exn; Lwt.return_unit
-       ) [%finally Lwt_io.close ic]
-    )
+  Conduit_lwt_unix.serve ?on_exn ?timeout ?stop ~ctx ~mode begin fun flow ic oc ->
+    set_tcp_nodelay flow;
+    server_fun flow ic oc
+  end
 
 let mk_frame_stream recv =
   let f () =
@@ -259,9 +254,9 @@ let mk_frame_stream recv =
 let establish_standard_server
     ?read_buf ?write_buf
     ?timeout ?stop ?random_string
-    ?exception_handler ?check_request ~ctx ~mode react =
+    ?on_exn ?check_request ~ctx ~mode react =
   let f client =
     react (Connected_client.make_standard client)
   in
   establish_server ?read_buf ?write_buf ?timeout ?stop
-    ?random_string ?exception_handler ?check_request ~ctx ~mode f
+    ?random_string ?on_exn ?check_request ~ctx ~mode f

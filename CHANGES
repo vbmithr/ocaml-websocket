@@ -1,3 +1,8 @@
+2.9 (2017-03-20)
+* Lwt: rename ?exception_handler to ?on_exn, to match Conduit
+* Async: Add ?check_request with the same interface as Lwt backend
+* Fix compilation with the dev version of Async
+
 2.8 (2017-03-01)
 * drop dependency to ppx_deriving
 * bugfix: fix corrupted received frame (@zoggy)

@@ -188,28 +188,54 @@ let client_ez
   end;
   client_read, client_write
 
-let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~writer address =
-  let server_fun address r w =
+let server
+    ?log
+    ?random_string
+    ?(check_request = fun _ -> Deferred.return true)
+    ~reader ~writer
+    ~app_to_ws ~ws_to_app () =
+  let handshake r w =
     (Request_async.read r >>| function
       | `Ok r -> r
       | `Eof ->
-        (* Remote endpoint closed connection. No further action necessary here. *)
-        Option.iter log ~f:(fun log -> Log.info log "Remote endpoint closed connection");
+        (* Remote endpoint closed connection. No further action
+           necessary here. *)
+        Option.iter log ~f:begin fun log ->
+          Log.info log "Remote endpoint closed connection"
+        end ;
         raise End_of_file
       | `Invalid reason ->
-        Option.iter log ~f:(fun log -> Log.info log "Invalid input from remote endpoint: %s" reason);
+        Option.iter log ~f:begin fun log ->
+          Log.info log "Invalid input from remote endpoint: %s" reason
+        end ;
         failwith reason) >>= fun request ->
+    begin
+      check_request request >>= function
+      | true -> Deferred.unit
+      | false ->
+        let body = "403 Forbidden" in
+        let response = Cohttp.Response.make
+            ~status:`Forbidden ()
+            ~encoding:(Cohttp.Transfer.Fixed (String.length body |> Int64.of_int)) in
+        let open Response_async in
+        write ~flush:true
+          (fun w -> write_body w body)
+          response w >>= fun () ->
+        raise Exit
+    end >>= fun () ->
     let meth    = Request.meth request in
     let version = Request.version request in
     let headers = Request.headers request in
-    if not (
+    if not begin
         version = `HTTP_1_1
         && meth = `GET
-        && Header.get headers "upgrade" |> Option.map ~f:String.lowercase  = Some "websocket"
+        && Option.map (Header.get headers "upgrade") ~f:String.lowercase = Some "websocket"
         && upgrade_present headers
-      )
+      end
     then failwith "Protocol error";
-    let key = Option.value_exn ~message:"missing sec-websocket-key" (Header.get headers "sec-websocket-key") in
+    let key = Option.value_exn
+        ~message:"missing sec-websocket-key"
+        (Header.get headers "sec-websocket-key") in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = Header.of_list
         ["Upgrade", "websocket";
@@ -221,22 +247,35 @@ let server ?log ?(name="server") ?random_string ~app_to_ws ~ws_to_app ~reader ~w
         ~headers:response_headers () in
     Response_async.write (fun writer -> Deferred.unit) response w
   in
-  server_fun address reader writer >>= fun () ->
-  set_tcp_nodelay writer;
-  let read_frame = make_read_frame ?random_string ~masked:true (reader, writer) in
-  let rec loop () = read_frame () >>= Pipe.write ws_to_app >>= loop in
-  let run () =
-    Monitor.try_with_or_error ~name loop >>| function
-    | Ok () -> ()
-    | Error err ->
-      Option.iter log ~f:(fun log -> Log.error log "exception in server loop: %s" Error.(to_string_hum err))
-  in
-  let buf = Buffer.create 128 in
-  let transfer_end = Pipe.transfer app_to_ws Writer.(pipe writer)
-    (fun fr ->
-       Buffer.clear buf;
-       write_frame_to_buf ?random_string ~masked:false buf fr;
-       Buffer.contents buf
-    )
-  in
-  Deferred.any [transfer_end; run (); Pipe.closed ws_to_app; Pipe.closed app_to_ws]
+  Monitor.try_with_or_error
+    ~extract_exn:true (fun () -> handshake reader writer) |>
+  Deferred.Or_error.bind ~f:begin fun () ->
+    set_tcp_nodelay writer;
+    let read_frame =
+      make_read_frame ?random_string ~masked:true (reader, writer) in
+    let rec loop () =
+      read_frame () >>=
+      Pipe.write ws_to_app >>=
+      loop
+    in
+    let transfer_end =
+      let buf = Buffer.create 128 in
+      Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
+        Buffer.clear buf;
+        write_frame_to_buf ?random_string ~masked:false buf fr;
+        Buffer.contents buf
+      end
+    in
+    Monitor.protect
+      ~finally:begin fun () ->
+        Pipe.close ws_to_app ;
+        Pipe.close_read app_to_ws ;
+        Deferred.unit
+      end begin fun () ->
+      Deferred.any
+        [transfer_end;
+         loop ();
+         Pipe.closed ws_to_app;
+         Pipe.closed app_to_ws]
+    end >>= Deferred.Or_error.return
+  end

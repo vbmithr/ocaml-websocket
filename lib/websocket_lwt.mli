@@ -66,7 +66,7 @@ val establish_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
-  ?exception_handler:(exn -> unit) ->
+  ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
@@ -90,7 +90,7 @@ val establish_standard_server :
   ?timeout:int ->
   ?stop:unit Lwt.t ->
   ?random_string:Rng.t ->
-  ?exception_handler:(exn -> unit) ->
+  ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
