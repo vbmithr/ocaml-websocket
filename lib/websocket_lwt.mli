@@ -48,16 +48,15 @@ module Connected_client : sig
   (** [source t] is the source address of [t]. *)
 end
 
-module SSet : Set.S with type elt = string
-
 val check_origin :
-  ?origin_mandatory: bool -> hosts:SSet.t ->
+  ?origin_mandatory: bool -> hosts:string list ->
     Cohttp.Request.t -> bool
-(** [check_origin ~hosts req] with return [true] is the origin header
-    exists and match one of the provided hostnames.
-    If origin header is not present of does not container a hostname,
-    return [not origin_mandatory]. Default value of [origin_mandatory]
-    is false.
+(** [check_origin ~hosts req] will return [true] if the origin header
+    exists and matches one of the provided hostnames.
+    If origin header is not present, return [not origin_mandatory].
+    Default value of [origin_mandatory] is false.
+    If origin header is present but does not contain a hostname,
+    return [false].
     Hostnames in [hosts] are (ascii-)lowercased when compared.*)
 
 val check_origin_with_host : Cohttp.Request.t -> bool

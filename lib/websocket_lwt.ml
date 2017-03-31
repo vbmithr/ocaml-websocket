@@ -109,21 +109,19 @@ let set_tcp_nodelay flow =
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
 
-module SSet = Set.Make(String)
-
 let check_origin ?(origin_mandatory=false) ~hosts =
-  let pred origin_host = SSet.exists
+  let pred origin_host = List.exists
     (fun h -> String.Ascii.lowercase h = origin_host)
     hosts
   in
   fun request ->
     let headers = request.Cohttp.Request.headers in
     match Cohttp.Header.get headers "origin" with
-      None -> not origin_mandatory
+    | None -> not origin_mandatory
     | Some origin ->
         let origin = Uri.of_string origin in
         match Uri.host origin with
-        | None -> not origin_mandatory
+        | None -> false
         | Some host -> (* host is already lowercased by Uri *)
             pred host
 
@@ -135,7 +133,7 @@ let check_origin_with_host request =
   | Some host ->
       (* remove port *)
       let hostname = Option.value_map ~default:host ~f:fst (String.cut ~sep:":" host) in
-      check_origin ~hosts:(SSet.singleton hostname) request
+      check_origin ~hosts:[hostname] request
 
 let with_connection ?(extra_headers = Cohttp.Header.init ())
   ?(random_string=Rng.std ?state:None) ~ctx client uri =
