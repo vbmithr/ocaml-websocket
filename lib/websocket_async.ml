@@ -17,8 +17,8 @@
 
 include Websocket
 
-open Core.Std
-open Async.Std
+open Core
+open Async
 open Cohttp
 
 module Async_IO = IO(Cohttp_async_io)
