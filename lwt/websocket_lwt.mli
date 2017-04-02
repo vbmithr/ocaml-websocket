@@ -26,8 +26,6 @@
 
 val section : Lwt_log_core.section
 
-module Frame : module type of Websocket.Frame
-
 module Connected_client : sig
   type t
 
@@ -36,9 +34,9 @@ module Connected_client : sig
     | Domain_socket of string
     | Vchan of Conduit_lwt_unix.vchan_flow
 
-  val send : t -> Frame.t -> unit Lwt.t
+  val send : t -> Websocket.Frame.t -> unit Lwt.t
 
-  val recv : t -> Frame.t Lwt.t
+  val recv : t -> Websocket.Frame.t Lwt.t
 
   val http_request : t -> Cohttp.Request.t
   (** [http_request] returns the http request that initialized this websocket
@@ -65,18 +63,18 @@ val check_origin_with_host : Cohttp.Request.t -> bool
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
-  ?random_string:Rng.t ->
-  ctx:Conduit_lwt_unix.ctx ->
+  ?random_string:(int -> string) ->
+  ?ctx:Conduit_lwt_unix.ctx ->
   Conduit_lwt_unix.client ->
   Uri.t ->
-  ((unit -> Frame.t Lwt.t) * (Frame.t -> unit Lwt.t)) Lwt.t
+  ((unit -> Websocket.Frame.t Lwt.t) * (Websocket.Frame.t -> unit Lwt.t)) Lwt.t
 
 val establish_server :
   ?read_buf:Buffer.t ->
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
@@ -90,7 +88,7 @@ val establish_server :
 
 (** {2 Convenience functions} *)
 
-val mk_frame_stream : (unit -> Frame.t Lwt.t) -> Frame.t Lwt_stream.t
+val mk_frame_stream : (unit -> Websocket.Frame.t Lwt.t) -> Websocket.Frame.t Lwt_stream.t
 (** [mk_frame_stream f] is a stream build from [f], which role is to
     receive the frames that will form the stream. When a Close frame
     is received, the stream will be closed. *)
@@ -100,7 +98,7 @@ val establish_standard_server :
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->

@@ -39,6 +39,14 @@ module Option = struct
   | Some v -> Some (f v)
 end
 
+module Rng = struct
+  let init ?state =
+    let state =
+      Option.value state ~default:(Random.self_init (); Random.get_state ()) in
+    fun size ->
+      String.v size (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
+end
+
 module Frame = struct
   module Opcode = struct
     type t =
@@ -169,7 +177,7 @@ module IO(IO: Cohttp.S.IO) = struct
     | Some s ->
         return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
-  let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
+  let write_frame_to_buf ?(random_string=Rng.init ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
     let content = Bytes.unsafe_of_string fr.content in
@@ -202,7 +210,7 @@ module IO(IO: Cohttp.S.IO) = struct
     end;
     Buffer.add_bytes buf content
 
-  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked (ic,oc) =
+  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked ic oc =
     let close_with_code code =
       Buffer.clear buf;
       write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;

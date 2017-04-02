@@ -31,11 +31,10 @@ let send_frames ?random_string stream oc =
     in
     Lwt_stream.iter_s send_frame stream
 
-let read_frames ?random_string icoc handler_fn =
-  let read_frame = Lwt_IO.make_read_frame ?random_string ~masked:false icoc in
-  while%lwt true do
-    read_frame () >>= Lwt.wrap1 handler_fn
-  done
+let read_frames ?random_string ic oc handler_fn =
+  let read_frame = Lwt_IO.make_read_frame ?random_string ~masked:false ic oc in
+  let rec inner () = read_frame () >>= Lwt.wrap1 handler_fn >>= inner
+  in inner ()
 
 let upgrade_connection ?random_string request conn incoming_handler =
   let headers = Cohttp.Request.headers request in
@@ -68,7 +67,7 @@ let upgrade_connection ?random_string request conn incoming_handler =
               Lwt.join [
                   (* input: data from the client is read from the input channel
                    * of the tcp connection; pass it to handler function *)
-                  read_frames ?random_string (ic, oc) incoming_handler;
+                  read_frames ?random_string ic oc incoming_handler;
                   (* output: data for the client is written to the output
                    * channel of the tcp connection *)
                   send_frames ?random_string frames_out_stream oc;

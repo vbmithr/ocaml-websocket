@@ -1,4 +1,5 @@
 open Lwt.Infix
+open Websocket
 open Websocket_lwt
 
 let section = Lwt_log.Section.make "wscat"
@@ -40,39 +41,43 @@ let client uri =
       send @@ Frame.create ~content () >>= pushf
   in pushf () <?> react_forever ()
 
+let react client client_id =
+  let rec inner () =
+    Connected_client.recv client >>= fun fr ->
+    Lwt_log.debug_f ~section "Client %d: %s" client_id Frame.(show fr) >>= fun () ->
+    match fr.opcode with
+    | Frame.Opcode.Ping ->
+      Connected_client.send client
+        Frame.(create ~opcode:Opcode.Pong ~content:fr.content ()) >>=
+      inner
+    | Frame.Opcode.Close ->
+      (* Immediately echo and pass this last message to the user *)
+      if String.length fr.content >= 2 then
+        let content = String.sub fr.content 0 2 in
+        Connected_client.send client Frame.(create ~opcode:Opcode.Close ~content ())
+      else
+      Connected_client.send client @@ Frame.close 1000
+    | Frame.Opcode.Pong ->
+      inner ()
+    | Frame.Opcode.Text
+    | Frame.Opcode.Binary ->
+      Connected_client.send client fr >>=
+      inner
+    | _ ->
+      Connected_client.send client Frame.(close 1002)
+  in inner ()
+
 let server uri =
   let id = ref (-1) in
   let echo_fun client =
     incr id;
     let id = !id in
-    let open Frame in
-    let rec react () =
-      Connected_client.recv client >>= fun fr ->
-      Lwt_log.debug_f ~section "Client %d: %s" id Frame.(show fr) >>= fun () ->
-      match fr.opcode with
-      | Opcode.Ping ->
-        Connected_client.send client Frame.(create ~opcode:Opcode.Pong ~content:fr.content ()) >>=
-        react
-      | Opcode.Close ->
-        (* Immediately echo and pass this last message to the user *)
-        if String.length fr.content >= 2 then
-          let content = String.sub fr.content 0 2 in
-          Connected_client.send client Frame.(create ~opcode:Opcode.Close ~content ())
-        else
-          Connected_client.send client @@ Frame.close 1000
-      | Opcode.Pong ->
-        react ()
-      | Opcode.Text
-      | Opcode.Binary ->
-        Connected_client.send client fr >>=
-        react
-      | _ ->
-        Connected_client.send client Frame.(close 1002)
-    in
     Lwt_log.info_f ~section "Connection from client id %d" id >>= fun () ->
-    try%lwt react () with exn ->
-      Lwt_log.error_f ~section ~exn "Client %d error" id >>= fun () ->
-      Lwt.fail exn
+    Lwt.catch
+      (fun () -> react client id)
+      (fun exn ->
+         Lwt_log.error_f ~section ~exn "Client %d error" id >>= fun () ->
+         Lwt.fail exn)
   in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   let open Conduit_lwt_unix in

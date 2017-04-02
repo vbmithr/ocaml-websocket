@@ -1,4 +1,5 @@
 open Lwt
+open Websocket
 open Websocket_cohttp_lwt
 
 let handler
@@ -62,11 +63,7 @@ let handler
                 Lwt_io.eprintf "[SEND] %s\n%!" msg
                 >>= fun () ->
                 Lwt.wrap1 frames_out_fn @@
-                    Some (
-                        of_bytes @@
-                        BytesLabels.of_string @@
-                        msg
-                    )
+                    Some (Frame.create ~content:msg ())
                 >>= fun () ->
                 Lwt.return (num_ref := !num_ref - 1)
                 >>= fun () ->
