@@ -1,0 +1,21 @@
+(executable
+ ((name wscat)
+  (public_name wscat)
+  (modules wscat)
+  (libraries (websocket_lwt))))
+
+(executable
+ ((name wscat_async)
+  (public_name wscat_async)
+  (modules wscat_async)
+  (libraries (uri.services websocket_async))))
+
+(executable
+ ((name reynir)
+  (modules reynir)
+  (libraries (websocket_lwt))))
+
+(executable
+ ((name upgrade_connection)
+  (modules upgrade_connection)
+  (libraries (websocket_cohttp_lwt))))

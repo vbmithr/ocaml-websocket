@@ -1,3 +1,4 @@
+open Websocket
 open Websocket_lwt
 open Lwt.Infix
 
@@ -40,11 +41,11 @@ let handler id client =
     in
     Connected_client.recv client >>= react >>= recv_forever
   in
-  try%lwt
-    recv_forever ()
-  with exn ->
-    Lwt_log.info_f ~section "Connection to client %d lost" id >>= fun () ->
-    Lwt.fail exn
+  Lwt.catch
+    recv_forever
+    (fun exn ->
+       Lwt_log.info_f ~section "Connection to client %d lost" id >>= fun () ->
+       Lwt.fail exn)
 
 let main uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->

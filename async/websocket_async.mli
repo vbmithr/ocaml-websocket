@@ -24,8 +24,8 @@
     unframing of messages.
 *)
 
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 module Frame : module type of Websocket.Frame
 

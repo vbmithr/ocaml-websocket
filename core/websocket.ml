@@ -169,7 +169,7 @@ module IO(IO: Cohttp.S.IO) = struct
     | Some s ->
         return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
-  let write_frame_to_buf ?(random_string=Rng.std ?state:None) ~masked buf fr =
+  let write_frame_to_buf ?(random_string=Rng.init ?state:None) ~masked buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
     let content = Bytes.unsafe_of_string fr.content in
@@ -202,7 +202,7 @@ module IO(IO: Cohttp.S.IO) = struct
     end;
     Buffer.add_bytes buf content
 
-  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked (ic,oc) =
+  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked ic oc =
     let close_with_code code =
       Buffer.clear buf;
       write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;

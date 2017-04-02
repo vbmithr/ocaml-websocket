@@ -45,7 +45,7 @@ module Connected_client = struct
       ?read_buf
       ?(write_buf=Buffer.create 128)
       random_string http_request flow ic oc =
-    let read_frame = make_read_frame ?random_string ~masked:false (ic, oc) in
+    let read_frame = make_read_frame ?random_string ~masked:false ic oc in
     {
       random_string;
       buffer = write_buf;
@@ -63,7 +63,7 @@ module Connected_client = struct
     Lwt_io.write oc @@ Buffer.contents buffer
 
   let standard_recv t =
-    let%lwt fr = t.read_frame () in
+    t.read_frame () >>= fun fr ->
     match fr.Frame.opcode with
     | Frame.Opcode.Ping ->
         send t @@ Frame.create
@@ -135,8 +135,11 @@ let check_origin_with_host request =
       let hostname = Option.value_map ~default:host ~f:fst (String.cut ~sep:":" host) in
       check_origin ~hosts:[hostname] request
 
-let with_connection ?(extra_headers = Cohttp.Header.init ())
-  ?(random_string=Rng.std ?state:None) ~ctx client uri =
+let with_connection
+    ?(extra_headers = Cohttp.Header.init ())
+    ?(random_string=Rng.init ?state:None)
+    ?(ctx=Conduit_lwt_unix.default_ctx)
+    client uri =
   let connect () =
     let module C = Cohttp in
     let nonce = random_string 16 |> B64.encode ~pad:true in
@@ -146,7 +149,7 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = C.Request.make ~headers uri in
-    Conduit_lwt_unix.(connect ~ctx:default_ctx client) >>= fun (flow, ic, oc) ->
+    Conduit_lwt_unix.(connect ctx client) >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
     let drain_handshake () =
       Request.write (fun writer -> Lwt.return_unit) req oc >>= fun () ->
@@ -169,25 +172,22 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
       then Lwt.fail (Protocol_error "Bad headers")
       else Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri)
     in
-    (try%lwt
-      drain_handshake ()
-     with exn ->
-       Lwt_io.close ic >>= fun () ->
-       Lwt.fail exn)
-    >>= fun () ->
+    Lwt.catch drain_handshake begin fun exn ->
+      Lwt_io.close ic >>= fun () ->
+      Lwt.fail exn
+    end >>= fun () ->
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~random_string ~masked:true (ic, oc) in
+  let read_frame = make_read_frame ~random_string ~masked:true ic oc in
   let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
   let buf = Buffer.create 128 in
-  read_frame,
-  (fun frame ->
-     try%lwt
-       Buffer.clear buf;
-       write_frame_to_buf ~random_string ~masked:true buf frame;
-       Lwt_io.write oc @@ Buffer.contents buf
-     with exn -> Lwt.fail exn)
+  let write_frame frame =
+    Buffer.clear buf;
+    Lwt.wrap2
+      (write_frame_to_buf ~random_string ~masked:true) buf frame >>= fun () ->
+    Lwt_io.write oc @@ Buffer.contents buf in
+  read_frame, write_frame
 
 let write_failed_response oc =
   let body = "403 Forbidden" in
@@ -257,7 +257,7 @@ let establish_server
 
 let mk_frame_stream recv =
   let f () =
-    let%lwt fr = recv () in
+    recv () >>= fun fr ->
     match fr.Frame.opcode with
     | Frame.Opcode.Close -> Lwt.return_none
     | _ -> Lwt.return (Some fr)

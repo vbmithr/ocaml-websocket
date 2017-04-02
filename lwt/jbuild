@@ -1,0 +1,13 @@
+(library
+ ((name websocket_lwt)
+  (public_name websocket.lwt)
+  (modules websocket_lwt)
+  (optional)
+  (libraries (rng websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))
+
+(library
+ ((name websocket_cohttp_lwt)
+  (public_name websocket.cohttp-lwt)
+  (modules websocket_cohttp_lwt)
+  (optional)
+  (libraries (rng websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))

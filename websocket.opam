@@ -15,28 +15,24 @@ tags: [
   "org:mirage"
   "org:xapi-project"
 ]
-build: [
-  ["ocaml" "pkg/build.ml" "native=%{ocaml-native}%"
-                          "native-dynlink=%{ocaml-native-dynlink}%"
-                          "lwt=%{lwt:installed}%"
-                          "async=%{async:installed}%"
-                          "async_ssl=%{async_ssl:installed}%"
-                          "nocrypto=%{nocrypto:installed}%"
-                          "cryptokit=%{cryptokit:installed}%"
-                          "test=false"
-  ]
-]
+build: [ "jbuilder" "build" "-j" jobs "@install" ]
 depends: [
-  "cppo" {build}
+  "jbuilder" {build}
   "conduit" {>= "0.14.0"}
   "cohttp" {>= "0.17.1"}
   "ocplib-endian" {>= "0.8"}
   "astring"
 ]
 
-depopts: ["async" "async_ssl" "lwt" "nocrypto" "cryptokit"]
+depopts: [
+  "async_ssl"
+  "lwt"
+  "nocrypto"
+  "cryptokit"
+]
+
 conflicts: [
   "lwt" {< "2.4.8"}
-  "async" {< "112.35.00"}
+  "async_ssl" {< "114.35+03"}
   "nocrypto" {< "0.5.0"}
 ]

@@ -17,8 +17,8 @@
 
 include Websocket
 
-open Core.Std
-open Async.Std
+open Core
+open Async
 open Cohttp
 
 module Async_IO = IO(Cohttp_async_io)
@@ -35,7 +35,7 @@ let client
     ?log
     ?(name="client")
     ?(extra_headers = Header.init ())
-    ?(random_string = Rng.std ?state:None)
+    ?(random_string = Rng.init ?state:None)
     ?initialized
     ~app_to_ws
     ~ws_to_app
@@ -73,7 +73,8 @@ let client
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
     Option.iter initialized (fun ivar -> Ivar.fill ivar ());
-    let read_frame = make_read_frame ~random_string ~masked:true (net_to_ws, ws_to_net) in
+    let read_frame =
+      make_read_frame ~random_string ~masked:true net_to_ws ws_to_net in
     let buf = Buffer.create 128 in
     let rec forward_frames_to_app ws_to_app =
       read_frame () >>= fun fr ->
@@ -252,7 +253,7 @@ let server
   Deferred.Or_error.bind ~f:begin fun () ->
     set_tcp_nodelay writer;
     let read_frame =
-      make_read_frame ?random_string ~masked:true (reader, writer) in
+      make_read_frame ?random_string ~masked:true reader writer in
     let rec loop () =
       read_frame () >>=
       Pipe.write ws_to_app >>=

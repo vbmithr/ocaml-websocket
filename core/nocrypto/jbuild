@@ -1,0 +1,6 @@
+(library
+ ((name rng_nocrypto)
+  (public_name websocket.rng_nocrypto)
+  (modules rng_nocrypto)
+  (optional)
+  (libraries (rng nocrypto))))
