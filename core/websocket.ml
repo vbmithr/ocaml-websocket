@@ -39,6 +39,14 @@ module Option = struct
   | Some v -> Some (f v)
 end
 
+module Rng = struct
+  let init ?state =
+    let state =
+      Option.value state ~default:(Random.self_init (); Random.get_state ()) in
+    fun size ->
+      String.v size (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
+end
+
 module Frame = struct
   module Opcode = struct
     type t =

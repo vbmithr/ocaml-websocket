@@ -31,7 +31,7 @@ exception HTTP_Error of string
 
 module Connected_client = struct
   type t = {
-    random_string: Rng.t option;
+    random_string: (int -> string) option;
     buffer: Buffer.t;
     flow: Conduit_lwt_unix.flow;
     ic: Request.IO.ic;

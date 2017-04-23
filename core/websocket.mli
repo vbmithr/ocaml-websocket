@@ -11,6 +11,10 @@ module Option : sig
   val map : f:('a -> 'b) -> 'a option -> 'b option
 end
 
+module Rng : sig
+  val init : ?state:Random.State.t -> (int -> string)
+end
+
 module Frame : sig
   module Opcode : sig
     type t =
@@ -48,13 +52,13 @@ end
 module IO(IO: Cohttp.S.IO) : sig
   val make_read_frame :
     ?buf:Buffer.t ->
-    ?random_string:Rng.t ->
+    ?random_string:(int -> string) ->
     masked:bool ->
     IO.ic -> IO.oc ->
     unit -> Frame.t IO.t
 
   val write_frame_to_buf :
-    ?random_string:Rng.t ->
+    ?random_string:(int -> string) ->
     masked:bool ->
     Buffer.t ->
     Frame.t -> unit

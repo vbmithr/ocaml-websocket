@@ -1,6 +1,0 @@
-(library
- ((name rng_cryptokit)
-  (public_name websocket.rng_cryptokit)
-  (modules rng_cryptokit)
-  (optional)
-  (libraries (rng cryptokit))))

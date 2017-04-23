@@ -63,7 +63,7 @@ val check_origin_with_host : Cohttp.Request.t -> bool
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?ctx:Conduit_lwt_unix.ctx ->
   Conduit_lwt_unix.client ->
   Uri.t ->
@@ -74,7 +74,7 @@ val establish_server :
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
@@ -98,7 +98,7 @@ val establish_standard_server :
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->

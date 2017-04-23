@@ -33,7 +33,7 @@ val client :
   ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?initialized:unit Ivar.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
@@ -48,7 +48,7 @@ val client_ez :
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
   ?heartbeat:Time_ns.Span.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   Uri.t ->
   ('a, 'b) Socket.t ->
   Reader.t ->
@@ -57,7 +57,7 @@ val client_ez :
 
 val server :
   ?log:Log.t ->
-  ?random_string:Rng.t ->
+  ?random_string:(int -> string) ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
   reader:Reader.t ->
   writer:Writer.t ->

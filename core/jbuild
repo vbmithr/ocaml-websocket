@@ -1,11 +1,5 @@
 (library
- ((name rng)
-  (public_name websocket.rng)
-  (modules rng)
-  (libraries ())))
-
-(library
  ((name websocket)
   (public_name websocket)
   (modules (sha1 websocket))
-  (libraries (rng astring base64 ocplib-endian cohttp))))
+  (libraries (astring base64 ocplib-endian cohttp))))
