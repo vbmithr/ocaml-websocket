@@ -1,13 +1,20 @@
 (library
  ((name websocket_lwt)
-  (public_name websocket.lwt)
+  (public_name websocket-lwt)
   (modules websocket_lwt)
   (optional)
   (libraries (websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))
 
 (library
  ((name websocket_cohttp_lwt)
-  (public_name websocket.cohttp-lwt)
+  (public_name websocket-lwt.cohttp)
   (modules websocket_cohttp_lwt)
   (optional)
   (libraries (websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))
+
+(executable
+ ((name wscat)
+  (public_name wscat-lwt)
+  (package websocket-lwt)
+  (modules wscat)
+  (libraries (websocket-lwt))))

@@ -1,5 +1,5 @@
 opam-version: "1.2"
-name: "websocket"
+name: "websocket-async"
 version: "2.9"
 authors: "Vincent Bernardoff <vb@luminar.eu.org>"
 maintainer: "Vincent Bernardoff <vb@luminar.eu.org>"
@@ -17,9 +17,6 @@ tags: [
 ]
 build: [ "jbuilder" "build" "-j" jobs "-p" name "@install" ]
 depends: [
-  "jbuilder" {build & >= "1.0+beta8"}
-  "conduit" {>= "0.15.0"}
-  "cohttp" {>= "0.17.1"}
-  "ocplib-endian" {>= "0.8"}
-  "astring"
+  "websocket" {= "2.9"}
+  "async_ssl" {>= "v0.9"}
 ]

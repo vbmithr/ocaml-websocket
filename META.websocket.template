@@ -1,0 +1,11 @@
+# JBUILDER_GEN
+
+package "lwt" (
+  description = "Deprecated. Use websocket-lwt directly"
+  requires = "websocket-lwt"
+)
+
+package "async" (
+  description = "Deprecated. Use websocket-async directly"
+  requires = "websocket-async"
+)
