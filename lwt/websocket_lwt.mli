@@ -74,7 +74,6 @@ val establish_server :
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->
@@ -98,7 +97,6 @@ val establish_standard_server :
   ?write_buf:Buffer.t ->
   ?timeout:int ->
   ?stop:unit Lwt.t ->
-  ?random_string:(int -> string) ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
   ctx:Conduit_lwt_unix.ctx ->

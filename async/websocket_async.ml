@@ -191,7 +191,6 @@ let client_ez
 
 let server
     ?log
-    ?random_string
     ?(check_request = fun _ -> Deferred.return true)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
@@ -253,7 +252,7 @@ let server
   Deferred.Or_error.bind ~f:begin fun () ->
     set_tcp_nodelay writer;
     let read_frame =
-      make_read_frame ?random_string ~masked:true reader writer in
+      make_read_frame ~masked:true reader writer in
     let rec loop () =
       read_frame () >>=
       Pipe.write ws_to_app >>=
@@ -263,7 +262,7 @@ let server
       let buf = Buffer.create 128 in
       Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
         Buffer.clear buf;
-        write_frame_to_buf ?random_string ~masked:false buf fr;
+        write_frame_to_buf ~masked:false buf fr;
         Buffer.contents buf
       end
     in

@@ -57,14 +57,13 @@ val client_ez :
 
 val server :
   ?log:Log.t ->
-  ?random_string:(int -> string) ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
   reader:Reader.t ->
   writer:Writer.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   unit -> unit Deferred.Or_error.t
-(** [server ?log ?random_string ?request_cb reader writer app_to_ws
+(** [server ?log ?request_cb reader writer app_to_ws
     ws_to_app ()] returns a thread that expects a websocket client
     connected to [reader]/[writer] and, after performing the
     handshake, will resp. read outgoing frames from [app_to_ws] and
