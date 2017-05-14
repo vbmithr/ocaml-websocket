@@ -40,7 +40,7 @@ module Option = struct
 end
 
 module Rng = struct
-  let init ?state =
+  let init ?state () =
     let state =
       Option.value state ~default:(Random.self_init (); Random.get_state ()) in
     fun size ->
@@ -154,6 +154,13 @@ exception Protocol_error of string
 module IO(IO: Cohttp.S.IO) = struct
   open IO
 
+  type mode =
+    | Client of (int -> string)
+    | Server
+
+  let is_client mode = mode <> Server
+  let is_server mode = mode = Server
+
   let rec read_exactly ic remaining buf =
     read ic remaining >>= fun s ->
     if s = "" then return None
@@ -177,7 +184,7 @@ module IO(IO: Cohttp.S.IO) = struct
     | Some s ->
         return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
-  let write_frame_to_buf ?(random_string=Rng.init ?state:None) ~masked buf fr =
+  let write_frame_to_buf ~mode buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
     let content = Bytes.unsafe_of_string fr.content in
@@ -190,7 +197,7 @@ module IO(IO: Cohttp.S.IO) = struct
     in
     let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
-    let hdr = set_bit hdr 7 masked in
+    let hdr = set_bit hdr 7 (is_client mode) in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
     EndianBytes.BigEndian.set_int16 scratch 0 hdr;
     Buffer.add_subbytes buf scratch 0 2;
@@ -203,25 +210,26 @@ module IO(IO: Cohttp.S.IO) = struct
        EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n);
        Buffer.add_subbytes buf scratch 0 8;
     end;
-    if masked then begin
+    begin match mode with
+    | Server -> ()
+    | Client random_string ->
       let mask = random_string 4 in
       Buffer.add_string buf mask;
       if len > 0 then xor mask content;
     end;
     Buffer.add_bytes buf content
 
-  let make_read_frame ?(buf=Buffer.create 128) ?random_string ~masked ic oc =
-    let close_with_code code =
-      Buffer.clear buf;
-      write_frame_to_buf ?random_string ~masked buf @@ Frame.close code;
-      write oc @@ Buffer.contents buf
-    in
-    fun () ->
-      Buffer.clear buf;
-      read_exactly ic 2 buf >>= fun hdr ->
-      match hdr with
-      | None -> raise End_of_file
-      | Some hdr ->
+  let close_with_code mode buf oc code =
+    Buffer.clear buf;
+    write_frame_to_buf ~mode buf @@ Frame.close code;
+    write oc @@ Buffer.contents buf
+
+  let make_read_frame ?(buf=Buffer.create 128) ~mode ic oc = fun () ->
+    Buffer.clear buf;
+    read_exactly ic 2 buf >>= fun hdr ->
+    match hdr with
+    | None -> raise End_of_file
+    | Some hdr ->
       let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
       let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
       let final = is_bit_set 7 hdr_part1 in
@@ -232,36 +240,36 @@ module IO(IO: Cohttp.S.IO) = struct
       let opcode = Frame.Opcode.of_enum opcode in
       Buffer.clear buf;
       (match length with
-       | i when i < 126 -> return i
-       | 126 -> (read_uint16 ic buf >>= function Some i -> return i | None -> return @@ -1)
-       | 127 -> (read_int64 ic buf >>= function Some i -> return i | None -> return @@ -1)
-       | _ -> return @@ -1
+      | i when i < 126 -> return i
+      | 126 -> (read_uint16 ic buf >>= function Some i -> return i | None -> return @@ -1)
+      | 127 -> (read_int64 ic buf >>= function Some i -> return i | None -> return @@ -1)
+      | _ -> return @@ -1
       ) >>= fun payload_len ->
       if payload_len = -1 then
         raise (Protocol_error ("payload len = " ^ string_of_int length))
       else if extension <> 0 then
-        close_with_code 1002 >>= fun () ->
+        close_with_code mode buf oc 1002 >>= fun () ->
         raise (Protocol_error "unsupported extension")
       else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
-        close_with_code 1002 >>= fun () ->
+        close_with_code mode buf oc 1002 >>= fun () ->
         raise (Protocol_error "control frame too big")
       else
-        (if frame_masked then
-           (Buffer.clear buf;
-           read_exactly ic 4 buf >>= function
-           | None -> raise (Protocol_error "could not read mask");
-           | Some mask -> return mask)
-         else return String.empty) >>= fun mask ->
-        if payload_len = 0 then
-          return @@ Frame.create ~opcode ~extension ~final ()
-        else
-          (Buffer.clear buf;
-          read_exactly ic payload_len buf) >>= fun payload ->
-          match payload with
-          | None -> raise (Protocol_error "could not read payload")
-          | Some payload ->
-          let payload = Bytes.unsafe_of_string payload in
-          if frame_masked then xor mask payload;
-          let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-          return frame
+      (if frame_masked then
+         (Buffer.clear buf;
+          read_exactly ic 4 buf >>= function
+          | None -> raise (Protocol_error "could not read mask");
+          | Some mask -> return mask)
+       else return String.empty) >>= fun mask ->
+      if payload_len = 0 then
+        return @@ Frame.create ~opcode ~extension ~final ()
+      else
+      (Buffer.clear buf;
+       read_exactly ic payload_len buf) >>= fun payload ->
+      match payload with
+      | None -> raise (Protocol_error "could not read payload")
+      | Some payload ->
+        let payload = Bytes.unsafe_of_string payload in
+        if frame_masked then xor mask payload;
+        let frame = Frame.of_bytes ~opcode ~extension ~final payload in
+        return frame
 end

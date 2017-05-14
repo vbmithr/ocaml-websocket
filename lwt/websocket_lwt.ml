@@ -31,7 +31,6 @@ exception HTTP_Error of string
 
 module Connected_client = struct
   type t = {
-    random_string: (int -> string) option;
     buffer: Buffer.t;
     flow: Conduit_lwt_unix.flow;
     ic: Request.IO.ic;
@@ -44,10 +43,9 @@ module Connected_client = struct
   let create
       ?read_buf
       ?(write_buf=Buffer.create 128)
-      random_string http_request flow ic oc =
-    let read_frame = make_read_frame ?random_string ~masked:false ic oc in
+      http_request flow ic oc =
+    let read_frame = make_read_frame ~mode:Server ic oc in
     {
-      random_string;
       buffer = write_buf;
       flow;
       ic;
@@ -57,9 +55,9 @@ module Connected_client = struct
       read_frame;
     }
 
-  let send { buffer; oc; random_string; _ } frame =
+  let send { buffer; oc } frame =
     Buffer.clear buffer;
-    write_frame_to_buf ?random_string ~masked:false buffer frame;
+    write_frame_to_buf ~mode:Server buffer frame;
     Lwt_io.write oc @@ Buffer.contents buffer
 
   let standard_recv t =
@@ -137,7 +135,7 @@ let check_origin_with_host request =
 
 let with_connection
     ?(extra_headers = Cohttp.Header.init ())
-    ?(random_string=Rng.init ?state:None)
+    ?(random_string=Rng.init ())
     ?(ctx=Conduit_lwt_unix.default_ctx)
     client uri =
   let connect () =
@@ -179,13 +177,13 @@ let with_connection
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~random_string ~masked:true ic oc in
+  let read_frame = make_read_frame ~mode:(Client random_string) ic oc in
   let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
   let buf = Buffer.create 128 in
   let write_frame frame =
     Buffer.clear buf;
     Lwt.wrap2
-      (write_frame_to_buf ~random_string ~masked:true) buf frame >>= fun () ->
+      (write_frame_to_buf ~mode:(Client random_string)) buf frame >>= fun () ->
     Lwt_io.write oc @@ Buffer.contents buf in
   read_frame, write_frame
 
@@ -205,7 +203,7 @@ let write_failed_response oc =
 
 let establish_server
     ?read_buf ?write_buf
-    ?timeout ?stop ?random_string
+    ?timeout ?stop
     ?on_exn
     ?(check_request=check_origin_with_host)
     ~ctx ~mode react =
@@ -247,7 +245,7 @@ let establish_server
         ~headers:response_headers () in
     Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
     let client =
-      Connected_client.create ?read_buf ?write_buf random_string request flow ic oc in
+      Connected_client.create ?read_buf ?write_buf request flow ic oc in
     react client
   in
   Conduit_lwt_unix.serve ?on_exn ?timeout ?stop ~ctx ~mode begin fun flow ic oc ->
@@ -266,10 +264,10 @@ let mk_frame_stream recv =
 
 let establish_standard_server
     ?read_buf ?write_buf
-    ?timeout ?stop ?random_string
+    ?timeout ?stop
     ?on_exn ?check_request ~ctx ~mode react =
   let f client =
     react (Connected_client.make_standard client)
   in
   establish_server ?read_buf ?write_buf ?timeout ?stop
-    ?random_string ?on_exn ?check_request ~ctx ~mode f
+    ?on_exn ?check_request ~ctx ~mode f

@@ -12,7 +12,9 @@ module Option : sig
 end
 
 module Rng : sig
-  val init : ?state:Random.State.t -> (int -> string)
+  val init : ?state:Random.State.t -> unit -> (int -> string)
+  (** [init ?state ()] is a function that returns a string of random
+      bytes of length equal to its argument. *)
 end
 
 module Frame : sig
@@ -50,16 +52,12 @@ module Frame : sig
 end
 
 module IO(IO: Cohttp.S.IO) : sig
-  val make_read_frame :
-    ?buf:Buffer.t ->
-    ?random_string:(int -> string) ->
-    masked:bool ->
-    IO.ic -> IO.oc ->
-    unit -> Frame.t IO.t
+  type mode =
+    | Client of (int -> string)
+    | Server
 
-  val write_frame_to_buf :
-    ?random_string:(int -> string) ->
-    masked:bool ->
-    Buffer.t ->
-    Frame.t -> unit
+  val make_read_frame :
+    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> (unit -> Frame.t IO.t)
+
+  val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 end

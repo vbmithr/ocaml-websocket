@@ -18,7 +18,6 @@
 module Frame : module type of Websocket.Frame
 
 val upgrade_connection:
-  ?random_string:(int -> string) ->
   Cohttp.Request.t ->
   Conduit_lwt_unix.flow ->
   (Frame.t -> unit) ->

@@ -35,7 +35,7 @@ let client
     ?log
     ?(name="client")
     ?(extra_headers = Header.init ())
-    ?(random_string = Rng.init ?state:None)
+    ?(random_string = Rng.init ())
     ?initialized
     ~app_to_ws
     ~ws_to_app
@@ -74,7 +74,7 @@ let client
     drain_handshake net_to_ws ws_to_net >>= fun () ->
     Option.iter initialized (fun ivar -> Ivar.fill ivar ());
     let read_frame =
-      make_read_frame ~random_string ~masked:true net_to_ws ws_to_net in
+      make_read_frame ~mode:(Client random_string) net_to_ws ws_to_net in
     let buf = Buffer.create 128 in
     let rec forward_frames_to_app ws_to_app =
       read_frame () >>= fun fr ->
@@ -88,7 +88,7 @@ let client
     let forward_frames_to_net ws_to_net app_to_ws =
       Writer.transfer ws_to_net app_to_ws begin fun fr ->
         Buffer.clear buf;
-        write_frame_to_buf ~random_string ~masked:true buf fr;
+        write_frame_to_buf ~mode:(Client random_string) buf fr;
         let contents = Buffer.contents buf in
         Writer.write ws_to_net contents
       end
@@ -191,7 +191,6 @@ let client_ez
 
 let server
     ?log
-    ?random_string
     ?(check_request = fun _ -> Deferred.return true)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
@@ -253,7 +252,7 @@ let server
   Deferred.Or_error.bind ~f:begin fun () ->
     set_tcp_nodelay writer;
     let read_frame =
-      make_read_frame ?random_string ~masked:true reader writer in
+      make_read_frame ~mode:Server reader writer in
     let rec loop () =
       read_frame () >>=
       Pipe.write ws_to_app >>=
@@ -263,7 +262,7 @@ let server
       let buf = Buffer.create 128 in
       Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
         Buffer.clear buf;
-        write_frame_to_buf ?random_string ~masked:false buf fr;
+        write_frame_to_buf ~mode:Server buf fr;
         Buffer.contents buf
       end
     in
