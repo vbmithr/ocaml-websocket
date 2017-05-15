@@ -22,17 +22,17 @@ module Lwt_IO = Websocket.IO(Cohttp_lwt_unix_io)
 
 open Lwt
 
-let send_frames ?random_string stream oc =
+let send_frames stream oc =
     let buf = Buffer.create 128 in
     let send_frame fr =
       Buffer.clear buf;
-      Lwt_IO.write_frame_to_buf ?random_string ~masked:false buf fr;
+      Lwt_IO.write_frame_to_buf buf fr;
       Lwt_io.write oc @@ Buffer.contents buf
     in
     Lwt_stream.iter_s send_frame stream
 
-let read_frames ?random_string ic oc handler_fn =
-  let read_frame = Lwt_IO.make_read_frame ?random_string ~masked:false ic oc in
+let read_frames ?(random_string=Rng.init ()) ic oc handler_fn =
+  let read_frame = Lwt_IO.make_read_frame ~random_string ~masked:false ic oc in
   let rec inner () = read_frame () >>= Lwt.wrap1 handler_fn >>= inner
   in inner ()
 
@@ -70,7 +70,7 @@ let upgrade_connection ?random_string request conn incoming_handler =
                   read_frames ?random_string ic oc incoming_handler;
                   (* output: data for the client is written to the output
                    * channel of the tcp connection *)
-                  send_frames ?random_string frames_out_stream oc;
+                  send_frames frames_out_stream oc;
               ]
           | _ -> Lwt.fail_with "expected TCP Websocket connection"
   in
