@@ -154,6 +154,13 @@ exception Protocol_error of string
 module IO(IO: Cohttp.S.IO) = struct
   open IO
 
+  type mode =
+    | Client of (int -> string)
+    | Server
+
+  let is_client mode = mode <> Server
+  let is_server mode = mode = Server
+
   let rec read_exactly ic remaining buf =
     read ic remaining >>= fun s ->
     if s = "" then return None
@@ -177,7 +184,7 @@ module IO(IO: Cohttp.S.IO) = struct
     | Some s ->
         return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
-  let write_frame_to_buf ?masked buf fr =
+  let write_frame_to_buf ~mode buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
     let content = Bytes.unsafe_of_string fr.content in
@@ -190,7 +197,7 @@ module IO(IO: Cohttp.S.IO) = struct
     in
     let hdr = set_bit 0 15 (fr.final) in (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
-    let hdr = set_bit hdr 7 (masked <> None) in
+    let hdr = set_bit hdr 7 (is_client mode) in
     let hdr = hdr lor payload_len in (* Payload len is guaranteed to fit in 7 bits *)
     EndianBytes.BigEndian.set_int16 scratch 0 hdr;
     Buffer.add_subbytes buf scratch 0 2;
@@ -203,30 +210,21 @@ module IO(IO: Cohttp.S.IO) = struct
        EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n);
        Buffer.add_subbytes buf scratch 0 8;
     end;
-    begin match masked with
-    | None -> ()
-    | Some random_string ->
+    begin match mode with
+    | Server -> ()
+    | Client random_string ->
       let mask = random_string 4 in
       Buffer.add_string buf mask;
       if len > 0 then xor mask content;
     end;
     Buffer.add_bytes buf content
 
-  let close_with_code ?masked buf oc code =
+  let close_with_code mode buf oc code =
     Buffer.clear buf;
-    write_frame_to_buf ?masked buf @@ Frame.close code;
+    write_frame_to_buf ~mode buf @@ Frame.close code;
     write oc @@ Buffer.contents buf
 
-  let make_read_frame
-      ?(buf=Buffer.create 128)
-      ~random_string
-      ~masked ic oc = fun () ->
-    let masked = match masked with
-    | true -> Some random_string
-    | false -> None in
-    let not_masked = match masked with
-    | None -> Some random_string
-    | Some _ -> None in
+  let make_read_frame ?(buf=Buffer.create 128) ~mode ic oc = fun () ->
     Buffer.clear buf;
     read_exactly ic 2 buf >>= fun hdr ->
     match hdr with
@@ -250,10 +248,10 @@ module IO(IO: Cohttp.S.IO) = struct
       if payload_len = -1 then
         raise (Protocol_error ("payload len = " ^ string_of_int length))
       else if extension <> 0 then
-        close_with_code buf ?masked:not_masked oc 1002 >>= fun () ->
+        close_with_code mode buf oc 1002 >>= fun () ->
         raise (Protocol_error "unsupported extension")
       else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
-        close_with_code buf ?masked:not_masked oc 1002 >>= fun () ->
+        close_with_code mode buf oc 1002 >>= fun () ->
         raise (Protocol_error "control frame too big")
       else
       (if frame_masked then

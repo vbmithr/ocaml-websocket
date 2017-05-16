@@ -52,15 +52,12 @@ module Frame : sig
 end
 
 module IO(IO: Cohttp.S.IO) : sig
-  val make_read_frame :
-    ?buf:Buffer.t ->
-    random_string:(int -> string) ->
-    masked:bool ->
-    IO.ic -> IO.oc ->
-    unit -> Frame.t IO.t
+  type mode =
+    | Client of (int -> string)
+    | Server
 
-  val write_frame_to_buf :
-    ?masked:(int -> string) ->
-    Buffer.t ->
-    Frame.t -> unit
+  val make_read_frame :
+    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> (unit -> Frame.t IO.t)
+
+  val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 end

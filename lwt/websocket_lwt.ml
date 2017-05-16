@@ -41,11 +41,10 @@ module Connected_client = struct
   }
 
   let create
-      ?(random_string=Rng.init ())
       ?read_buf
       ?(write_buf=Buffer.create 128)
       http_request flow ic oc =
-    let read_frame = make_read_frame ~random_string ~masked:false ic oc in
+    let read_frame = make_read_frame ~mode:Server ic oc in
     {
       buffer = write_buf;
       flow;
@@ -58,7 +57,7 @@ module Connected_client = struct
 
   let send { buffer; oc } frame =
     Buffer.clear buffer;
-    write_frame_to_buf buffer frame;
+    write_frame_to_buf ~mode:Server buffer frame;
     Lwt_io.write oc @@ Buffer.contents buffer
 
   let standard_recv t =
@@ -178,13 +177,13 @@ let with_connection
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~random_string ~masked:true ic oc in
+  let read_frame = make_read_frame ~mode:(Client random_string) ic oc in
   let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
   let buf = Buffer.create 128 in
   let write_frame frame =
     Buffer.clear buf;
     Lwt.wrap2
-      (write_frame_to_buf ~masked:random_string) buf frame >>= fun () ->
+      (write_frame_to_buf ~mode:(Client random_string)) buf frame >>= fun () ->
     Lwt_io.write oc @@ Buffer.contents buf in
   read_frame, write_frame
 
