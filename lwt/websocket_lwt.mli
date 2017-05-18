@@ -76,7 +76,7 @@ val establish_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ctx:Conduit_lwt_unix.ctx ->
+  ?ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
@@ -99,7 +99,7 @@ val establish_standard_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ctx:Conduit_lwt_unix.ctx ->
+  ?ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t

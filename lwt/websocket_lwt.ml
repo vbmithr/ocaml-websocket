@@ -206,7 +206,7 @@ let establish_server
     ?timeout ?stop
     ?on_exn
     ?(check_request=check_origin_with_host)
-    ~ctx ~mode react =
+    ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
   let module C = Cohttp in
   let server_fun flow ic oc =
     (Request.read ic >>= function
@@ -265,7 +265,7 @@ let mk_frame_stream recv =
 let establish_standard_server
     ?read_buf ?write_buf
     ?timeout ?stop
-    ?on_exn ?check_request ~ctx ~mode react =
+    ?on_exn ?check_request ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
   let f client =
     react (Connected_client.make_standard client)
   in
