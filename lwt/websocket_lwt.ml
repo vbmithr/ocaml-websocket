@@ -60,6 +60,11 @@ module Connected_client = struct
     write_frame_to_buf ~mode:Server buffer frame;
     Lwt_io.write oc @@ Buffer.contents buffer
 
+  let send_multiple { buffer; oc; _ } frames =
+    Buffer.clear buffer;
+    List.iter (write_frame_to_buf ~mode:Server buffer) frames;
+    Lwt_io.write oc @@ Buffer.contents buffer
+
   let standard_recv t =
     t.read_frame () >>= fun fr ->
     match fr.Frame.opcode with

@@ -36,6 +36,8 @@ module Connected_client : sig
 
   val send : t -> Websocket.Frame.t -> unit Lwt.t
 
+  val send_multiple : t -> Websocket.Frame.t list -> unit Lwt.t
+
   val recv : t -> Websocket.Frame.t Lwt.t
 
   val http_request : t -> Cohttp.Request.t
