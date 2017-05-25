@@ -3,7 +3,7 @@
   (public_name websocket-async)
   (modules websocket_async)
   (optional)
-  (libraries (websocket ipaddr async_ssl cohttp.async))))
+  (libraries (websocket ipaddr async_ssl cohttp-async))))
 
 (executable
  ((name wscat)

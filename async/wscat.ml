@@ -11,8 +11,8 @@ let client protocol extensions uri =
   let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
   let tcp_fun s r w =
     Socket.(setopt s Opt.nodelay true);
-    (if scheme = "https" || scheme = "wss"
-     then Conduit_async_ssl.ssl_connect r w
+    (if scheme = "https" || scheme = "wss" then
+       Conduit_async_ssl.(ssl_connect (Ssl_config.configure ~version:Tlsv1_2 ()) r w)
      else return (r, w)) >>= fun (r, w) ->
     let module C = Cohttp in
     let extra_headers = C.Header.init () in

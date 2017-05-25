@@ -21,11 +21,11 @@ open Core
 open Async
 open Cohttp
 
-module Async_IO = IO(Cohttp_async_io)
+module Async_IO = IO(Cohttp_async.Io)
 open Async_IO
 
-module Request_async = Request.Make(Cohttp_async_io)
-module Response_async = Response.Make(Cohttp_async_io)
+module Request_async = Request.Make(Cohttp_async.Io)
+module Response_async = Response.Make(Cohttp_async.Io)
 
 let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
