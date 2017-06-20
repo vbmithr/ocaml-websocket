@@ -36,6 +36,8 @@ module Connected_client : sig
 
   val send : t -> Websocket.Frame.t -> unit Lwt.t
 
+  val send_multiple : t -> Websocket.Frame.t list -> unit Lwt.t
+
   val recv : t -> Websocket.Frame.t Lwt.t
 
   val http_request : t -> Cohttp.Request.t
@@ -76,7 +78,7 @@ val establish_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ctx:Conduit_lwt_unix.ctx ->
+  ?ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
@@ -99,7 +101,7 @@ val establish_standard_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ctx:Conduit_lwt_unix.ctx ->
+  ?ctx:Conduit_lwt_unix.ctx ->
   mode:Conduit_lwt_unix.server ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
