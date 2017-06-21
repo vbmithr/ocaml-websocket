@@ -3,14 +3,14 @@
   (public_name websocket-lwt)
   (modules websocket_lwt)
   (optional)
-  (libraries (websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))
+  (libraries (websocket ipaddr lwt_ssl conduit-lwt-unix cohttp-lwt-unix))))
 
 (library
  ((name websocket_cohttp_lwt)
   (public_name websocket-lwt.cohttp)
   (modules websocket_cohttp_lwt)
   (optional)
-  (libraries (websocket ipaddr lwt conduit.lwt-unix cohttp.lwt))))
+  (libraries (websocket ipaddr lwt_ssl conduit-lwt-unix cohttp-lwt-unix))))
 
 (executable
  ((name wscat)
