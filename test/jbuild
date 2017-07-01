@@ -1,11 +1,9 @@
 (executable
  ((name reynir)
-  (package websocket-lwt)
-  (modules reynir)
+  (modules (reynir))
   (libraries (websocket-lwt))))
 
 (executable
  ((name upgrade_connection)
-  (package websocket-lwt)
-  (modules upgrade_connection)
+  (modules (upgrade_connection))
   (libraries (websocket-lwt.cohttp))))
