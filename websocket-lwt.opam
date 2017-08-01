@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "websocket-lwt"
-version: "2.9"
+version: "2.10"
 authors: "Vincent Bernardoff <vb@luminar.eu.org>"
 maintainer: "Vincent Bernardoff <vb@luminar.eu.org>"
 homepage: "https://github.com/vbmithr/ocaml-websocket"
@@ -19,6 +19,8 @@ build: [
   "jbuilder" "build" "-j" jobs "-p" name "@install"
 ]
 depends: [
-  "websocket" {= "2.9"}
-  "lwt" {>= "2.4.8"}
+  "websocket" {= "2.10"}
+  "ipaddr" {>= "2.8.0"}
+  "lwt_ssl" {>= "1.1.0"}
+  "cohttp-lwt-unix" {>= "0.99.0"}
 ]
