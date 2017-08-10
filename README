@@ -8,3 +8,10 @@ Bugs:
 =====
 
 Please raise any issue on the github page
+
+## Installation.
+
+```
+make
+jbuilder install
+```
