@@ -21,4 +21,4 @@ val upgrade_connection:
   Cohttp.Request.t ->
   Conduit_lwt_unix.flow ->
   (Frame.t -> unit) ->
-  (Cohttp.Response.t * Cohttp_lwt_body.t * (Frame.t option -> unit)) Lwt.t
+  (Cohttp.Response.t * Cohttp_lwt.Body.t * (Frame.t option -> unit)) Lwt.t

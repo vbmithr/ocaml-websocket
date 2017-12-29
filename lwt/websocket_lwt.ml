@@ -20,11 +20,11 @@ include Websocket
 open Astring
 open Lwt.Infix
 
-module Lwt_IO = IO(Cohttp_lwt_unix_io)
+module Lwt_IO = IO(Cohttp_lwt_unix.IO)
 open Lwt_IO
 
-module Request = Cohttp.Request.Make(Cohttp_lwt_unix_io)
-module Response = Cohttp.Response.Make(Cohttp_lwt_unix_io)
+module Request = Cohttp.Request.Make(Cohttp_lwt_unix.IO)
+module Response = Cohttp.Response.Make(Cohttp_lwt_unix.IO)
 
 let section = Lwt_log.Section.make "websocket_lwt"
 exception HTTP_Error of string

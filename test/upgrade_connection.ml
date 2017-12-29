@@ -5,7 +5,7 @@ open Websocket_cohttp_lwt
 let handler
     (conn : Conduit_lwt_unix.flow * Cohttp.Connection.t)
     (req  : Cohttp_lwt_unix.Request.t)
-    (body : Cohttp_lwt_body.t) =
+    (body : Cohttp_lwt.Body.t) =
   let open Frame in
   Lwt_io.eprintf
         "[CONN] %s\n%!" (Cohttp.Connection.to_string @@ snd conn)
@@ -43,7 +43,7 @@ let handler
   | "/ws" ->
     Lwt_io.eprintf "[PATH] /ws\n%!"
     >>= fun () ->
-    Cohttp_lwt_body.drain_body body
+    Cohttp_lwt.Body.drain_body body
     >>= fun () ->
     Websocket_cohttp_lwt.upgrade_connection req (fst conn) (
         fun f ->
@@ -75,7 +75,7 @@ let handler
         in
         go ()
     in
-    Lwt.return (resp, (body :> Cohttp_lwt_body.t))
+    Lwt.return (resp, (body :> Cohttp_lwt.Body.t))
   | _ ->
     Lwt_io.eprintf "[PATH] Catch-all\n%!"
     >>= fun () ->
