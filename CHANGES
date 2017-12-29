@@ -1,3 +1,11 @@
+2.11 (2017-12-19)
+* Lwt: fix compilation for Cohttp_lwt_unix >= 1.0
+
+2.10 (2017-08-01)
+* Build: use jbuilder
+* Lwt: add `check_origin` (@zoggy)
+* Lwt: add `send_multiple` (@copy)
+
 2.9 (2017-03-20)
 * Lwt: rename ?exception_handler to ?on_exn, to match Conduit
 * Async: Add ?check_request with the same interface as Lwt backend
