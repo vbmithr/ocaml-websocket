@@ -34,7 +34,8 @@ let client protocol extensions uri =
       Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
     ]
   in
-  Tcp.(with_connection (to_host_and_port host port) tcp_fun)
+  let hostport = Host_and_port.create host port in
+  Tcp.(with_connection Where_to_connect.(of_host_and_port hostport) tcp_fun)
 
 let handle_client addr reader writer =
   let addr_str = Socket.Address.(to_string addr) in
@@ -116,9 +117,9 @@ let command =
           Uri_services.(tcp_port_of_uri url) in
       Tcp.(Server.create
              ~on_handler_error:`Ignore
-             (on_port port) handle_client) >>=
+             Where_to_listen.(of_port port) handle_client) >>=
       Tcp.Server.close_finished
   in
-  Command.async ~summary:"telnet-like interface to Websockets" spec run
+  Command.async_spec ~summary:"telnet-like interface to Websockets" spec run
 
 let () = Command.run command
