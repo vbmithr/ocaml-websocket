@@ -58,6 +58,7 @@ val client_ez :
 val server :
   ?log:Log.t ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
+  ?select_protocol:(string -> string option) ->
   reader:Reader.t ->
   writer:Writer.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->

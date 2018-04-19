@@ -192,6 +192,7 @@ let client_ez
 let server
     ?log
     ?(check_request = fun _ -> Deferred.return true)
+    ?(select_protocol = fun _ -> None)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
   let handshake r w =
@@ -237,14 +238,21 @@ let server
         ~message:"missing sec-websocket-key"
         (Header.get headers "sec-websocket-key") in
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
-    let response_headers = Header.of_list
-        ["Upgrade", "websocket";
-         "Connection", "Upgrade";
-         "Sec-WebSocket-Accept", hash] in
+    let subprotocol =
+      Option.value_map (Header.get headers "sec-websocket-protocol") ~default:[]
+        ~f:(fun asked_protocol ->
+            Option.value_map (select_protocol asked_protocol) ~default:[]
+              ~f:(fun selected -> ["Sec-WebSocket-Protocol", selected]))
+    in
+    let response_headers =
+        ("Upgrade", "websocket") ::
+        ("Connection", "Upgrade") ::
+        ("Sec-WebSocket-Accept", hash) ::
+        subprotocol in
     let response = Response.make
         ~status:`Switching_protocols
         ~encoding:Transfer.Unknown
-        ~headers:response_headers () in
+        ~headers:(Header.of_list response_headers) () in
     Response_async.write (fun writer -> Deferred.unit) response w
   in
   Monitor.try_with_or_error
