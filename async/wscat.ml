@@ -12,7 +12,7 @@ let client protocol extensions uri =
   let tcp_fun s r w =
     Socket.(setopt s Opt.nodelay true);
     (if scheme = "https" || scheme = "wss" then
-       Conduit_async_ssl.(ssl_connect (Ssl_config.configure ~version:Tlsv1_2 ()) r w)
+       Conduit_async_ssl.(ssl_connect r w)
      else return (r, w)) >>= fun (r, w) ->
     let module C = Cohttp in
     let extra_headers = C.Header.init () in
