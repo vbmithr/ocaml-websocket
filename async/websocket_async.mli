@@ -50,7 +50,6 @@ val client_ez :
   ?heartbeat:Time_ns.Span.t ->
   ?random_string:(int -> string) ->
   Uri.t ->
-  ('a, 'b) Socket.t ->
   Reader.t ->
   Writer.t ->
   string Pipe.Reader.t * string Pipe.Writer.t

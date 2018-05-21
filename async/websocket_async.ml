@@ -115,7 +115,7 @@ let client_ez
     ?heartbeat
     ?random_string
     uri
-    _s net_to_ws ws_to_net =
+    net_to_ws ws_to_net =
   let app_to_ws, reactor_write = Pipe.create () in
   let to_reactor_write, client_write = Pipe.create () in
   let client_read, ws_to_app = Pipe.create () in
