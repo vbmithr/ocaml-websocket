@@ -27,7 +27,7 @@
 open Core
 open Async
 
-module Frame : module type of Websocket.Frame
+module Frame = Websocket.Frame
 
 val client :
   ?log:Log.t ->
