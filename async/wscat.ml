@@ -6,14 +6,13 @@ module W = Websocket_async
 
 let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
-  let port = Option.value_exn ~message:"no port inferred from scheme"
-      Uri_services.(tcp_port_of_uri uri) in
+  let port =
+    match Uri.port uri, Uri_services.tcp_port_of_uri uri with
+    | Some p, _ -> p
+    | None, Some p -> p
+    | _ -> invalid_arg "port cannot be inferred from URL" in
   let scheme = Option.value_exn ~message:"no scheme in uri" Uri.(scheme uri) in
-  let tcp_fun s r w =
-    Socket.(setopt s Opt.nodelay true);
-    (if scheme = "https" || scheme = "wss" then
-       Conduit_async_ssl.(ssl_connect r w)
-     else return (r, w)) >>= fun (r, w) ->
+  let tcp_fun (r, w) =
     let module C = Cohttp in
     let extra_headers = C.Header.init () in
     let extra_headers = Option.value_map protocol ~default:extra_headers
@@ -34,8 +33,21 @@ let client protocol extensions uri =
       Pipe.transfer r Writer.(pipe @@ Lazy.force stderr) ~f:(fun s -> s ^ "\n")
     ]
   in
-  let hostport = Host_and_port.create host port in
-  Tcp.(with_connection Where_to_connect.(of_host_and_port hostport) tcp_fun)
+  Unix.Addr_info.get ~service:(string_of_int port) ~host [] >>= function
+  | [] -> failwithf "DNS resolution failed for %s" host ()
+  | { ai_family; ai_socktype; ai_protocol; ai_addr; ai_canonname } :: _ ->
+    let addr =
+      match scheme, ai_addr with
+      | _, ADDR_UNIX path -> `Unix_domain_socket path
+      | "https", ADDR_INET (h, p)
+      | "wss", ADDR_INET (h, p) ->
+        let h = Ipaddr_unix.of_inet_addr h in
+        `OpenSSL (h, p, Conduit_async.V2.Ssl.Config.create ())
+      | _, ADDR_INET (h, p) ->
+        let h = Ipaddr_unix.of_inet_addr h in
+        `TCP (h, p)
+    in
+    Conduit_async.V2.connect addr >>= tcp_fun
 
 let handle_client addr reader writer =
   let addr_str = Socket.Address.(to_string addr) in
