@@ -3,7 +3,7 @@
   (public_name websocket-lwt)
   (modules websocket_lwt)
   (optional)
-  (libraries (websocket cohttp-lwt-unix))))
+  (libraries (lwt_log websocket cohttp-lwt-unix))))
 
 (library
  ((name websocket_cohttp_lwt)
