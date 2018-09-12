@@ -1,5 +1,4 @@
 open Lwt
-open Websocket
 open Websocket_cohttp_lwt
 
 let handler
@@ -84,7 +83,7 @@ let handler
         ~body:(Sexplib.Sexp.to_string_hum (Cohttp.Request.sexp_of_t req))
         ()
 
-let start_server host port () =
+let start_server port =
   let conn_closed (ch,_) =
     Printf.eprintf "[SERV] connection %s closed\n%!"
       (Sexplib.Sexp.to_string_hum (Conduit_lwt_unix.sexp_of_flow ch))
@@ -94,6 +93,5 @@ let start_server host port () =
     ~mode:(`TCP (`Port port))
     (Cohttp_lwt_unix.Server.make ~callback:handler ~conn_closed ())
 
-(* main *)
 let () =
-    Lwt_main.run (start_server "localhost" 7777 ())
+  Lwt_main.run (start_server 7777)

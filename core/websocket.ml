@@ -43,8 +43,8 @@ module Rng = struct
   let init ?state () =
     let state =
       Option.value state ~default:(Random.self_init (); Random.get_state ()) in
-    fun size ->
-      String.v size (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
+    fun len ->
+      String.v ~len (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
 end
 
 module Frame = struct
@@ -70,9 +70,6 @@ module Frame = struct
     | Nonctrl i -> "nonctrl " ^ string_of_int i
 
     let pp ppf t = Format.fprintf ppf "%s" (to_string t)
-
-    let min = 0x0
-    let max = 0xf
 
     let of_enum = function
       | i when (i < 0 || i > 0xf) -> invalid_arg "Frame.Opcode.of_enum"
@@ -123,10 +120,6 @@ module Frame = struct
     let content = Bytes.create 2 in
     EndianBytes.BigEndian.set_int16 content 0 code;
     of_bytes ~opcode:Opcode.Close content
-
-  let of_subbytes ?opcode ?extension ?final content pos len =
-    let content = Bytes.(sub content pos len |> unsafe_to_string) in
-    create ?opcode ?extension ?final ~content ()
 end
 
 let xor mask msg =
@@ -159,7 +152,6 @@ module IO(IO: Cohttp.S.IO) = struct
     | Server
 
   let is_client mode = mode <> Server
-  let is_server mode = mode = Server
 
   let rec read_exactly ic remaining buf =
     read ic remaining >>= fun s ->

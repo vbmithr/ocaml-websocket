@@ -44,7 +44,7 @@ module Connected_client = struct
       ?read_buf
       ?(write_buf=Buffer.create 128)
       http_request flow ic oc =
-    let read_frame = make_read_frame ~mode:Server ic oc in
+    let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
     {
       buffer = write_buf;
       flow;
@@ -55,7 +55,7 @@ module Connected_client = struct
       read_frame;
     }
 
-  let send { buffer; oc } frame =
+  let send { buffer; oc; _ } frame =
     Buffer.clear buffer;
     write_frame_to_buf ~mode:Server buffer frame;
     Lwt_io.write oc @@ Buffer.contents buffer
@@ -98,7 +98,7 @@ module Connected_client = struct
     match flow with
     | Conduit_lwt_unix.TCP tcp_flow ->
       TCP (tcp_flow.Conduit_lwt_unix.ip, tcp_flow.Conduit_lwt_unix.port)
-    | Conduit_lwt_unix.Domain_socket { path } ->
+    | Conduit_lwt_unix.Domain_socket { path; _ } ->
       Domain_socket path
     | Conduit_lwt_unix.Vchan flow ->
       Vchan flow
@@ -152,10 +152,10 @@ let with_connection
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = C.Request.make ~headers uri in
-    Conduit_lwt_unix.(connect ctx client) >>= fun (flow, ic, oc) ->
+    Conduit_lwt_unix.connect ~ctx client >>= fun (flow, ic, oc) ->
     set_tcp_nodelay flow;
     let drain_handshake () =
-      Request.write (fun writer -> Lwt.return_unit) req oc >>= fun () ->
+      Request.write (fun _writer -> Lwt.return_unit) req oc >>= fun () ->
       Response.read ic >>= (function
           | `Ok r -> Lwt.return r
           | `Eof -> Lwt.fail End_of_file
@@ -248,7 +248,7 @@ let establish_server
         ~status:`Switching_protocols
         ~encoding:C.Transfer.Unknown
         ~headers:response_headers () in
-    Response.write (fun writer -> Lwt.return_unit) response oc >>= fun () ->
+    Response.write (fun _writer -> Lwt.return_unit) response oc >>= fun () ->
     let client =
       Connected_client.create ?read_buf ?write_buf request flow ic oc in
     react client

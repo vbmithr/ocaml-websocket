@@ -26,7 +26,7 @@ let send_frames stream oc =
     let buf = Buffer.create 128 in
     let send_frame fr =
       Buffer.clear buf;
-      Lwt_IO.write_frame_to_buf (Server) buf fr;
+      Lwt_IO.write_frame_to_buf ~mode:Server buf fr;
       Lwt_io.write oc @@ Buffer.contents buf
     in
     Lwt_stream.iter_s send_frame stream
@@ -57,7 +57,7 @@ let upgrade_connection request conn incoming_handler =
 
   let frames_out_stream, frames_out_fn = Lwt_stream.create () in
 
-  let body_stream, stream_push = Lwt_stream.create () in
+  let body_stream, _stream_push = Lwt_stream.create () in
   let _ =
       match conn with
           | Conduit_lwt_unix.TCP tcp ->
