@@ -4,5 +4,5 @@
 
 ```
 make
-jbuilder install
+dune install
 ```

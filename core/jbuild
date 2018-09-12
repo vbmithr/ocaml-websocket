@@ -1,5 +1,0 @@
-(library
- ((name websocket)
-  (public_name websocket)
-  (modules (sha1 websocket))
-  (libraries (astring base64 ocplib-endian cohttp))))

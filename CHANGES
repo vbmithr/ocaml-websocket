@@ -1,3 +1,6 @@
+2.12 ()
+* build: switch to `dune`
+
 2.11 (2017-12-19)
 * Lwt: fix compilation for Cohttp_lwt_unix >= 1.0
 

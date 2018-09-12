@@ -16,9 +16,10 @@ tags: [
   "org:xapi-project"
 ]
 build: [
-  "jbuilder" "build" "-j" jobs "-p" name "@install"
+  "dune" "build" "-j" jobs "-p" name "@install"
 ]
 depends: [
+  "dune" {build & >= "1.1.1"}
   "websocket" {= "2.10"}
   "ipaddr" {>= "2.8.0"}
   "lwt_log" {>= "1.1.0"}
