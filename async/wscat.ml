@@ -35,7 +35,7 @@ let client protocol extensions uri =
   in
   Unix.Addr_info.get ~service:(string_of_int port) ~host [] >>= function
   | [] -> failwithf "DNS resolution failed for %s" host ()
-  | { ai_family; ai_socktype; ai_protocol; ai_addr; ai_canonname } :: _ ->
+  | { ai_addr; _ } :: _ ->
     let addr =
       match scheme, ai_addr with
       | _, ADDR_UNIX path -> `Unix_domain_socket path
@@ -64,7 +64,7 @@ let handle_client addr reader writer =
     | `Eof ->
       info "Client %s disconnected" addr_str;
       Deferred.unit
-    | `Ok ({ W.Frame.opcode; extension; final; content } as frame) ->
+    | `Ok ({ W.Frame.opcode; content; _ } as frame) ->
       let open W.Frame in
       debug "<- %s" W.Frame.(show frame);
       let frame', closed =
@@ -74,7 +74,7 @@ let handle_client addr reader writer =
           (* Immediately echo and pass this last message to the user *)
           if String.length content >= 2 then
             Some (create ~opcode:Opcode.Close
-                          ~content:(String.sub content 0 2) ()), true
+                          ~content:(String.sub content ~pos:0 ~len:2) ()), true
           else
           Some (close 100), true
         | Opcode.Pong -> None, false

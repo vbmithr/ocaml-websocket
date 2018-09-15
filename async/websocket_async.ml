@@ -33,7 +33,7 @@ let set_tcp_nodelay writer =
 
 let client
     ?log
-    ?(name="client")
+    ?(name="websocket.client")
     ?(extra_headers = Header.init ())
     ?(random_string = Rng.init ())
     ?initialized
@@ -51,7 +51,7 @@ let client
          "Sec-WebSocket-Version" , "13"] in
     let req = Request.make ~headers uri in
     Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
-    Request_async.write (fun writer -> Deferred.unit) req w >>= fun () ->
+    Request_async.write (fun _ -> Deferred.unit) req w >>= fun () ->
     Response_async.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
@@ -72,7 +72,7 @@ let client
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
-    Option.iter initialized (fun ivar -> Ivar.fill ivar ());
+    Option.iter initialized ~f:(fun ivar -> Ivar.fill ivar ());
     let read_frame =
       make_read_frame ~mode:(Client random_string) net_to_ws ws_to_net in
     let buf = Buffer.create 128 in
@@ -110,7 +110,7 @@ let client
 let client_ez
     ?opcode
     ?log
-    ?(name="client_ez")
+    ?(name="websocket.client_ez")
     ?extra_headers
     ?heartbeat
     ?random_string
@@ -150,7 +150,7 @@ let client_ez
         (* Immediately echo and pass this last message to the user *)
         (if String.length fr.content >= 2 then
            Pipe.write w @@ Frame.create ~opcode:Opcode.Close
-             ~content:(String.sub fr.content 0 2) ()
+             ~content:(String.sub fr.content ~pos:0 ~len:2) ()
          else Pipe.write w @@ Frame.close 1000) >>| fun () ->
         Pipe.close w;
         None
@@ -180,7 +180,7 @@ let client_ez
       ~finally:(fun () -> Lazy.force cleanup ; Deferred.unit)
       begin fun () ->
         Deferred.any_unit [
-          (client ?extra_headers ?log ?random_string ~initialized
+          (client ~name ?extra_headers ?log ?random_string ~initialized
              ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore) ;
           react () ;
           Deferred.all_unit Pipe.[ closed client_read ; closed client_write ; ]
@@ -191,6 +191,7 @@ let client_ez
 
 let server
     ?log
+    ?(name="websocket.server")
     ?(check_request = fun _ -> Deferred.return true)
     ?(select_protocol = fun _ -> None)
     ~reader ~writer
@@ -254,9 +255,9 @@ let server
         ~status:`Switching_protocols
         ~encoding:Transfer.Unknown
         ~headers:(Header.of_list response_headers) () in
-    Response_async.write (fun writer -> Deferred.unit) response w
+    Response_async.write (fun _ -> Deferred.unit) response w
   in
-  Monitor.try_with_or_error
+  Monitor.try_with_or_error ~name
     ~extract_exn:true (fun () -> handshake reader writer) |>
   Deferred.Or_error.bind ~f:begin fun () ->
     set_tcp_nodelay writer;
@@ -269,7 +270,7 @@ let server
     in
     let transfer_end =
       let buf = Buffer.create 128 in
-      Pipe.transfer app_to_ws Writer.(pipe writer) begin fun fr ->
+      Pipe.transfer app_to_ws Writer.(pipe writer) ~f:begin fun fr ->
         Buffer.clear buf;
         write_frame_to_buf ~mode:Server buf fr;
         Buffer.contents buf
