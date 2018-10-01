@@ -1,111 +1,157 @@
-2.12 ()
-* build: switch to `dune`
+2.12 (2018-10-01)
+-----------------
+
+- build: switch to `dune`
 
 2.11 (2017-12-19)
-* Lwt: fix compilation for Cohttp_lwt_unix >= 1.0
+-----------------
+
+- Lwt: fix compilation for Cohttp_lwt_unix >= 1.0
 
 2.10 (2017-08-01)
-* Build: use jbuilder
-* Lwt: add `check_origin` (@zoggy)
-* Lwt: add `send_multiple` (@copy)
+-----------------
+
+- Build: use jbuilder
+- Lwt: add `check_origin` (@zoggy)
+- Lwt: add `send_multiple` (@copy)
 
 2.9 (2017-03-20)
-* Lwt: rename ?exception_handler to ?on_exn, to match Conduit
-* Async: Add ?check_request with the same interface as Lwt backend
-* Fix compilation with the dev version of Async
+-----------------
+
+- Lwt: rename ?exception_handler to ?on_exn, to match Conduit
+- Async: Add ?check_request with the same interface as Lwt backend
+- Fix compilation with the dev version of Async
 
 2.8 (2017-03-01)
-* drop dependency to ppx_deriving
-* bugfix: fix corrupted received frame (@zoggy)
+----------------
+
+- drop dependency to ppx_deriving
+- bugfix: fix corrupted received frame (@zoggy)
 
 2.7 (2017-02-21)
-* new websocket.cohttp package to upgrade to websocket from cohttp (@SimonJF)
-* lwt: function `source' now covers all conduit cases
-* async: refactoring and fixes
-* perf improvement (Avoid generating xor mask if it isn't used) (@copy)
-* remove dependency to containers library
-* lwt: Add callback to check origin before websocket connection (@copy)
-* lwt: Improve error handling in lwt server (@copy)
-* async: more efficient logging
+----------------
+
+- new websocket.cohttp package to upgrade to websocket from cohttp (@SimonJF)
+- lwt: function `source' now covers all conduit cases
+- async: refactoring and fixes
+- perf improvement (Avoid generating xor mask if it isn't used) (@copy)
+- remove dependency to containers library
+- lwt: Add callback to check origin before websocket connection (@copy)
+- lwt: Improve error handling in lwt server (@copy)
+- async: more efficient logging
 
 2.6 (2016-09-17)
-* async: client_ez: kill the connection on absence of PONG reply
-* async: client_ez: fix PONG watch code
-* websocket: use read_exactly (@copy)
+----------------
+
+- async: client_ez: kill the connection on absence of PONG reply
+- async: client_ez: fix PONG watch code
+- websocket: use read_exactly (@copy)
 
 2.5 (2016-08-16)
-* async: client_ez: add an ?opcode argument
-* lwt: unset async_exception_hook (@copy)
+----------------
+
+- async: client_ez: add an ?opcode argument
+- lwt: unset async_exception_hook (@copy)
 
 2.4 (2016-07-26)
-* bugfix: Handle truncated cohttp stream reads (@kayceesrk)
-* cleanup: Async version does not depend on containers anymore
-* build: fix META generation, fixing Async-only installation
+----------------
+
+- bugfix: Handle truncated cohttp stream reads (@kayceesrk)
+- cleanup: Async version does not depend on containers anymore
+- build: fix META generation, fixing Async-only installation
 
 2.3 (2016-06-29)
-* async: bugfix: fix fd leak that occured when pipes were not closed
-* async: log, name as optional args in functions
-* lwt server: support from connection upgrade (@lostman)
-* bugfix: fix reading int64 encoded frame size
-* async server: bugfixes and interface improvement (@copy)
-* parametrize random string generation (@j0sh)
-* async client: minor improvements
+----------------
+
+- async: bugfix: fix fd leak that occured when pipes were not closed
+- async: log, name as optional args in functions
+- lwt server: support from connection upgrade (@lostman)
+- bugfix: fix reading int64 encoded frame size
+- async server: bugfixes and interface improvement (@copy)
+- parametrize random string generation (@j0sh)
+- async client: minor improvements
 
 2.2 (2015-12-23)
-* Async backend
-* Code refactoring, bugfixes and upgrade to new version of libraries
+----------------
+
+- Async backend
+- Code refactoring, bugfixes and upgrade to new version of libraries
 
 2.1 (2015-07-07)
-* server: Pass in a Cohttp.Request.t instead of Uri.t
-* add Websocket_Lwt.{mk_frame_stream,establish_standard_server}
-* websocket_lwt.cm{a,xa} now only contains module Websocket_lwt
-* Fix upgrade, keepalive issue with Firefox regression
-* Websocket_lwt: Use entropy generator
+----------------
+
+- server: Pass in a Cohttp.Request.t instead of Uri.t
+- add Websocket_Lwt.{mk_frame_stream,establish_standard_server}
+- websocket_lwt.cm{a,xa} now only contains module Websocket_lwt
+- Fix upgrade, keepalive issue with Firefox regression
+- Websocket_lwt: Use entropy generator
 
 2.0.0 (2015-06-18)
-* Breaking API change: not Lwt_stream based anymore
-* Switch to conduit (TLS)
-* Functorisation of common code, new Websocket_lwt module
-* More RFC compliance using Autobahn Test Suite
-* Bugfixes
+------------------
+
+- Breaking API change: not Lwt_stream based anymore
+- Switch to conduit (TLS)
+- Functorisation of common code, new Websocket_lwt module
+- More RFC compliance using Autobahn Test Suite
+- Bugfixes
 
 0.9.3 (2015-03-23)
-* Support TLS 0.4.0+ API.
+------------------
+
+- Support TLS 0.4.0+ API.
 
 0.9.2 (2015-02-10)
-* Bugfix: Do not verify result of setsockopt
+------------------
 
-0.9.1 (2015-01-03):
-* safe_string
-* fix a critical bug that when handling masked frames
+- Bugfix: Do not verify result of setsockopt
 
-0.9 (2014-08-21):
-* Drop support for OCaml < 4
-* Replace Cryptokit by Nocrypto
-* Replace Lwt_ssl by Tls_lwt for TLS
-* Add TLS support for the websocket server
-* Replace OASIS by topkg
-* Removing camlp4
-* Minor interface changes
+0.9.1 (2015-01-03)
+------------------
 
-0.8.2 (2014-06-09):
-* [doc] Add a warning in the doc of `establish_server`
-* Close frame now contain a status code (TODO: expose it somewhere)
-* Fix fd leakages (hopefully the library should not leak any fds anymore)
-* Use OASIS' compiled_setup_ml feature
+- safe_string
+- fix a critical bug that when handling masked frames
 
-0.8.1 (2014-03-26):
-* Upgrade to OASIS 0.4
+0.9 (2014-08-21)
+----------------
 
-0.8 (2014-03-26):
-* decode connection upgrade header with regex
+- Drop support for OCaml < 4
+- Replace Cryptokit by Nocrypto
+- Replace Lwt_ssl by Tls_lwt for TLS
+- Add TLS support for the websocket server
+- Replace OASIS by topkg
+- Removing camlp4
+- Minor interface changes
 
-0.7 (2014-03-02):
-* New "extra_headers" optional argument for {open,with}_connection (acm)
-* Port to cohttp 0.10.x API (avsm)
+0.8.2 (2014-06-09)
+------------------
 
-0.6 (2013-08-20):
-* Added SSL support for the client.
+- [doc] Add a warning in the doc of `establish_server`
+- Close frame now contain a status code (TODO: expose it somewhere)
+- Fix fd leakages (hopefully the library should not leak any fds anymore)
+- Use OASIS' compiled_setup_ml feature
 
-0.5 (2013-05-06):
-* First working release.
+0.8.1 (2014-03-26)
+------------------
+
+- Upgrade to OASIS 0.4
+
+0.8 (2014-03-26)
+----------------
+
+- decode connection upgrade header with regex
+
+0.7 (2014-03-02)
+----------------
+
+- New "extra_headers" optional argument for {open,with}_connection (acm)
+- Port to cohttp 0.10.x API (avsm)
+
+0.6 (2013-08-20)
+----------------
+
+- Added SSL support for the client.
+
+0.5 (2013-05-06)
+----------------
+
+- First working release.
