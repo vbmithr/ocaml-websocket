@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2015 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,101 +15,49 @@
  *
  *)
 
-(** Module [Websocket]: websocket library for Lwt *)
+(** Module [Websocket_lwt]: Code common to all specialiwed Lwt
+    implementations. *)
 
-(** This module implements a websocket client and server library in
-    the spirit of the otherwise similar TCP functions of the [Lwt_io]
-    module. The websocket protocol add message framing in addition of
-    simple TCP communication, and this library implement framing and
-    unframing of messages.
-*)
+module type S = sig
+  module IO : Cohttp.S.IO
 
-val section : Lwt_log_core.section
+  module Request : Cohttp.S.Http_io
+    with type t = Cohttp.Request.t
+     and type 'a IO.t = 'a IO.t
+     and type IO.ic = IO.ic
+     and type IO.oc = IO.oc
 
-module Connected_client : sig
-  type t
+  module Response : Cohttp.S.Http_io
+    with type t = Cohttp.Response.t
+     and type 'a IO.t = 'a IO.t
+     and type IO.ic = IO.ic
+     and type IO.oc = IO.oc
 
-  type source =
-    | TCP of Ipaddr.t * int
-    | Domain_socket of string
-    | Vchan of Conduit_lwt_unix.vchan_flow
+  module Connected_client : sig
+    type t
 
-  val send : t -> Websocket.Frame.t -> unit Lwt.t
+    val create :
+      ?read_buf:Buffer.t -> ?write_buf:Buffer.t ->
+      Cohttp.Request.t -> Conduit.endp -> IO.ic -> IO.oc -> t
 
-  val send_multiple : t -> Websocket.Frame.t list -> unit Lwt.t
+    val make_standard : t -> t
+    (** [make_standard t] enables the standard frame replies,
+        e.g. responding to ping. *)
 
-  val recv : t -> Websocket.Frame.t Lwt.t
+    val send : t -> Websocket.Frame.t -> unit IO.t
+    val send_multiple : t -> Websocket.Frame.t list -> unit IO.t
+    val recv : t -> Websocket.Frame.t IO.t
 
-  val http_request : t -> Cohttp.Request.t
-  (** [http_request] returns the http request that initialized this websocket
-      connection *)
+    val http_request : t -> Cohttp.Request.t
+    (** [http_request] returns the http request that initialized this websocket
+        connection *)
 
-  val source : t -> source
-  (** [source t] is the source address of [t]. *)
+    val source : t -> Conduit.endp
+    (** [source t] is the source address of [t]. *)
+  end
 end
 
-val check_origin :
-  ?origin_mandatory: bool -> hosts:string list ->
-    Cohttp.Request.t -> bool
-(** [check_origin ~hosts req] will return [true] if the origin header
-    exists and matches one of the provided hostnames.
-    If origin header is not present, return [not origin_mandatory].
-    Default value of [origin_mandatory] is false.
-    If origin header is present but does not contain a hostname,
-    return [false].
-    Hostnames in [hosts] are (ascii-)lowercased when compared.*)
-
-val check_origin_with_host : Cohttp.Request.t -> bool
-(** [check_origin_with_host] returns false if the origin header exists and its
-    host doesn't match the host header *)
-
-val with_connection :
-  ?extra_headers:Cohttp.Header.t ->
-  ?random_string:(int -> string) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  Conduit_lwt_unix.client ->
-  Uri.t ->
-  ((unit -> Websocket.Frame.t Lwt.t) * (Websocket.Frame.t -> unit Lwt.t)) Lwt.t
-
-val establish_server :
-  ?read_buf:Buffer.t ->
-  ?write_buf:Buffer.t ->
-  ?timeout:int ->
-  ?stop:unit Lwt.t ->
-  ?on_exn:(exn -> unit) ->
-  ?check_request:(Cohttp.Request.t -> bool) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  mode:Conduit_lwt_unix.server ->
-  (Connected_client.t -> unit Lwt.t) ->
-  unit Lwt.t
-(** [exception_handler] defaults to [Lwt.async_exception_hook]
-    [check_request] is called before the http upgrade. If it returns false, the
-    websocket connection is aborted with a "403 Forbidden" response. It
-    defaults to {!check_origin_with_host} *)
-
-(** {2 Convenience functions} *)
-
-val mk_frame_stream : (unit -> Websocket.Frame.t Lwt.t) -> Websocket.Frame.t Lwt_stream.t
-(** [mk_frame_stream f] is a stream build from [f], which role is to
-    receive the frames that will form the stream. When a Close frame
-    is received, the stream will be closed. *)
-
-val establish_standard_server :
-  ?read_buf:Buffer.t ->
-  ?write_buf:Buffer.t ->
-  ?timeout:int ->
-  ?stop:unit Lwt.t ->
-  ?on_exn:(exn -> unit) ->
-  ?check_request:(Cohttp.Request.t -> bool) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  mode:Conduit_lwt_unix.server ->
-  (Connected_client.t -> unit Lwt.t) ->
-  unit Lwt.t
-(** [establish_standard_server] is like {!establish_server} but with
-    automatic handling of some frames:
-
-    - A Pong frame is sent in response to a Ping frame,
-    - a Close frame is sent in response to a Close frame.
-
-    All frames are then passed to the frame handling function.
-*)
+module Make (IO : Cohttp.S.IO) : S
+  with type 'a IO.t := 'a IO.t
+   and type IO.ic := IO.ic
+   and type IO.oc := IO.oc

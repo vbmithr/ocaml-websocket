@@ -1,5 +1,5 @@
 opam-version: "2.0"
-name: "websocket-lwt"
+name: "websocket-lwt-unix"
 version: "2.13"
 authors: "Vincent Bernardoff <vb@luminar.eu.org>"
 maintainer: "Vincent Bernardoff <vb@luminar.eu.org>"
@@ -13,11 +13,10 @@ tags: [
 ]
 build: [ "dune" "build" "-j" jobs "-p" name "@install" ]
 depends: [
-  "dune" {build & >= "1.3.0"}
-  "ipaddr" {>= "2.8.0"}
-  "conduit" {>= "1.1.0"}
-  "cohttp" {>= "1.1.0"}
-  "websocket" {= "2.13"}
+  "dune" {build & >= "1.1.1"}
+  "lwt_log" {>= "1.1.0"}
+  "cohttp-lwt-unix" {>= "1.0.2"}
+  "websocket-lwt" {= "2.13"}
 ]
 synopsis: "Websocket library (Lwt)"
 description: """

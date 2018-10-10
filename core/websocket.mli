@@ -51,7 +51,23 @@ module Frame : sig
   val show : t -> string
 end
 
-module IO(IO: Cohttp.S.IO) : sig
+val check_origin :
+  ?origin_mandatory: bool -> hosts:string list ->
+  Cohttp.Request.t -> bool
+(** [check_origin ~hosts req] will return [true] if the origin header
+    exists and matches one of the provided hostnames.
+    If origin header is not present, return [not origin_mandatory].
+    Default value of [origin_mandatory] is false.
+    If origin header is present but does not contain a hostname,
+    return [false].
+    Hostnames in [hosts] are (ascii-)lowercased when compared.*)
+
+val check_origin_with_host : Cohttp.Request.t -> bool
+(** [check_origin_with_host] returns false if the origin header exists and its
+    host doesn't match the host header *)
+
+module type S = sig
+  module IO : Cohttp.S.IO
   type mode =
     | Client of (int -> string)
     | Server
@@ -61,3 +77,9 @@ module IO(IO: Cohttp.S.IO) : sig
 
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 end
+
+module IO(IO: Cohttp.S.IO) : S
+  with type 'a IO.t = 'a IO.t
+   and type IO.ic = IO.ic
+   and type IO.oc = IO.oc
+

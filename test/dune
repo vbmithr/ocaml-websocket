@@ -1,7 +1,7 @@
 (executable
  (name reynir)
  (modules reynir)
- (libraries websocket-lwt))
+ (libraries conduit-lwt-unix websocket-lwt-unix))
 
 (executable
  (name upgrade_connection)

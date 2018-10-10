@@ -1,5 +1,6 @@
 (*
- * Copyright (c) 2012-2016 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2016-2018 Maciej Wos <maciej.wos@gmail.com>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +16,7 @@
  *
  *)
 
-module Frame : module type of Websocket.Frame
+open Websocket
 
 val upgrade_connection:
   Cohttp.Request.t ->

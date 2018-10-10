@@ -1,5 +1,6 @@
 (*
- * Copyright (c) 2012-2016 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2016-2018 Maciej Wos <maciej.wos@gmail.com>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,12 +16,9 @@
  *
  *)
 
-include Websocket
-
-module C = Cohttp
-module Lwt_IO = Websocket.IO(Cohttp_lwt_unix.IO)
-
 open Lwt.Infix
+open Websocket
+module Lwt_IO = Websocket.IO(Cohttp_lwt_unix.IO)
 
 let send_frames stream oc =
     let buf = Buffer.create 128 in
@@ -56,21 +54,21 @@ let upgrade_connection request conn incoming_handler =
   in
 
   let frames_out_stream, frames_out_fn = Lwt_stream.create () in
-
   let body_stream, _stream_push = Lwt_stream.create () in
-  let _ =
-      match conn with
-          | Conduit_lwt_unix.TCP tcp ->
-              let oc = Lwt_io.of_fd ~mode:Lwt_io.output tcp.fd in
-              let ic = Lwt_io.of_fd ~mode:Lwt_io.input tcp.fd in
-              Lwt.join [
-                  (* input: data from the client is read from the input channel
-                   * of the tcp connection; pass it to handler function *)
-                  read_frames ic oc incoming_handler;
-                  (* output: data for the client is written to the output
-                   * channel of the tcp connection *)
-                  send_frames frames_out_stream oc;
-              ]
-          | _ -> Lwt.fail_with "expected TCP Websocket connection"
-  in
+  match conn with
+  | Conduit_lwt_unix.Domain_socket _ | Conduit_lwt_unix.Vchan _ ->
+    Lwt.fail_invalid_arg "expected TCP Websocket connection"
+  | Conduit_lwt_unix.TCP tcp ->
+    let oc = Lwt_io.of_fd ~mode:Lwt_io.output tcp.fd in
+    let ic = Lwt_io.of_fd ~mode:Lwt_io.input tcp.fd in
+    Lwt.async begin fun () ->
+      Lwt.join [
+        (* input: data from the client is read from the input channel
+         * of the tcp connection; pass it to handler function *)
+        read_frames ic oc incoming_handler;
+        (* output: data for the client is written to the output
+         * channel of the tcp connection *)
+        send_frames frames_out_stream oc;
+      ]
+    end ;
   Lwt.return (resp, Cohttp_lwt.Body.of_stream body_stream, frames_out_fn)

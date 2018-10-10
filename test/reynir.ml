@@ -1,6 +1,6 @@
-open Websocket
-open Websocket_lwt
 open Lwt.Infix
+open Websocket
+open Websocket_lwt_unix
 
 let section = Lwt_log.Section.make "reynir"
 

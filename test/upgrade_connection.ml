@@ -1,5 +1,5 @@
-open Lwt
-open Websocket_cohttp_lwt
+open Lwt.Infix
+open Websocket
 
 let handler
     (conn : Conduit_lwt_unix.flow * Cohttp.Connection.t)

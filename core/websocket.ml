@@ -144,8 +144,47 @@ let upgrade_present hs =
 
 exception Protocol_error of string
 
+let check_origin ?(origin_mandatory=false) ~hosts =
+  let pred origin_host = List.exists
+      (fun h -> String.Ascii.lowercase h = origin_host)
+      hosts
+  in
+  fun request ->
+    let headers = request.Cohttp.Request.headers in
+    match Cohttp.Header.get headers "origin" with
+    | None -> not origin_mandatory
+    | Some origin ->
+      let origin = Uri.of_string origin in
+      match Uri.host origin with
+      | None -> false
+      | Some host -> (* host is already lowercased by Uri *)
+        pred host
+
+let check_origin_with_host request =
+  let headers = request.Cohttp.Request.headers in
+  let host = Cohttp.Header.get headers "host" in
+  match host with
+  | None -> failwith "Missing host header" (* mandatory in http/1.1 *)
+  | Some host ->
+    (* remove port *)
+    let hostname = Option.value_map ~default:host ~f:fst (String.cut ~sep:":" host) in
+    check_origin ~hosts:[hostname] request
+
+module type S = sig
+  module IO : Cohttp.S.IO
+  type mode =
+    | Client of (int -> string)
+    | Server
+
+  val make_read_frame :
+    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> (unit -> Frame.t IO.t)
+
+  val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
+end
+
 module IO(IO: Cohttp.S.IO) = struct
   open IO
+  module IO = IO
 
   type mode =
     | Client of (int -> string)
