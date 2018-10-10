@@ -1,16 +1,9 @@
 (library
- (name websocket_lwt)
- (public_name websocket-lwt)
- (modules websocket_lwt)
- (optional)
- (libraries ipaddr conduit cohttp websocket))
-
-(library
  (name websocket_lwt_unix)
  (public_name websocket-lwt-unix)
  (modules websocket_lwt_unix)
  (optional)
- (libraries lwt_log cohttp-lwt-unix websocket websocket-lwt))
+ (libraries lwt_log cohttp-lwt-unix websocket))
 
 (library
  (name websocket_cohttp_lwt)

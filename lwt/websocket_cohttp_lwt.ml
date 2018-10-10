@@ -18,7 +18,7 @@
 
 open Lwt.Infix
 open Websocket
-module Lwt_IO = Websocket.IO(Cohttp_lwt_unix.IO)
+module Lwt_IO = Websocket.Make(Cohttp_lwt_unix.IO)
 
 let send_frames stream oc =
     let buf = Buffer.create 128 in
@@ -36,8 +36,13 @@ let read_frames ic oc handler_fn =
 
 let upgrade_connection request conn incoming_handler =
   let headers = Cohttp.Request.headers request in
-  let key = Option.value_exn @@ Cohttp.Header.get headers "sec-websocket-key" in
-  let hash = key ^ Websocket.websocket_uuid |> Websocket.b64_encoded_sha1sum in
+  begin match Cohttp.Header.get headers "sec-websocket-key" with
+  | None ->
+    Lwt.fail_invalid_arg "upgrade_connection: missing header \
+                          `sec-websocket-key`"
+  | Some key -> Lwt.return key
+  end >>= fun key ->
+  let hash = b64_encoded_sha1sum (key ^ websocket_uuid) in
   let response_headers =
       Cohttp.Header.of_list
         ["Upgrade", "websocket"

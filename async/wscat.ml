@@ -1,8 +1,8 @@
+open Websocket
 open Core
 open Async
 open Log.Global
-
-module W = Websocket_async
+open Websocket_async
 
 let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
@@ -21,7 +21,7 @@ let client protocol extensions uri =
     let extra_headers = Option.value_map extensions ~default:extra_headers
         ~f:(fun exts -> C.Header.add extra_headers "Sec-Websocket-Extensions" exts)
     in
-    let r, w = W.client_ez
+    let r, w = client_ez
         ~extra_headers
         ~log:Lazy.(force log)
         ~heartbeat:Time_ns.Span.(of_int_sec 5) uri r w
@@ -64,9 +64,9 @@ let handle_client addr reader writer =
     | `Eof ->
       info "Client %s disconnected" addr_str;
       Deferred.unit
-    | `Ok ({ W.Frame.opcode; content; _ } as frame) ->
-      let open W.Frame in
-      debug "<- %s" W.Frame.(show frame);
+    | `Ok ({ Frame.opcode; content; _ } as frame) ->
+      let open Frame in
+      debug "<- %s" Frame.(show frame);
       let frame', closed =
         match opcode with
         | Opcode.Ping -> Some (create ~opcode:Opcode.Pong ~content ()), false
@@ -94,7 +94,7 @@ let handle_client addr reader writer =
       else loop ()
   in
   Deferred.any [
-    begin W.server ~log:Lazy.(force log)
+    begin server ~log:Lazy.(force log)
         ~check_request ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
       | Error err when Error.to_exn err = Exit -> Deferred.unit
       | Error err -> Error.raise err

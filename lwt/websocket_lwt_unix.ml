@@ -18,17 +18,24 @@
 open Astring
 open Websocket
 open Lwt.Infix
-module LwtIO = Websocket.IO(Cohttp_lwt_unix.IO)
-include Websocket_lwt.Make(Cohttp_lwt_unix.IO)
+include Websocket.Make(Cohttp_lwt_unix.IO)
 
 let section = Lwt_log.Section.make "websocket_lwt_unix"
 exception HTTP_Error of string
+let http_error msg = Lwt.fail (HTTP_Error msg)
+let protocol_error msg = Lwt.fail (Protocol_error msg)
 
 let set_tcp_nodelay flow =
   let open Conduit_lwt_unix in
   match flow with
   | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
   | _ -> ()
+
+let fail_unless eq f =
+  if not eq then f () else Lwt.return_unit
+
+let fail_if eq f =
+  if eq then f () else Lwt.return_unit
 
 let with_connection
     ?(extra_headers = Cohttp.Header.init ())
@@ -54,18 +61,23 @@ let with_connection
         | `Invalid s -> Lwt.fail @@ Failure s) >>= fun response ->
       let status = C.Response.status response in
       let headers = C.Response.headers response in
-      if C.Code.(is_error @@ code_of_status status)
-      then Lwt.fail @@ HTTP_Error C.Code.(string_of_status status)
-      else if not (C.Response.version response = `HTTP_1_1
-                   && status = `Switching_protocols
-                   && Option.map ~f:String.Ascii.lowercase @@
-                   C.Header.get headers "upgrade" = Some "websocket"
-                   && upgrade_present headers
-                   && C.Header.get headers "sec-websocket-accept" =
-                      Some (nonce ^ websocket_uuid |> b64_encoded_sha1sum)
-                  )
-      then Lwt.fail (Protocol_error "Bad headers")
-      else Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri)
+      fail_if C.Code.(is_error @@ code_of_status status)
+        (fun () -> http_error C.Code.(string_of_status status)) >>= fun () ->
+      fail_unless (C.Response.version response = `HTTP_1_1)
+        (fun () -> protocol_error "wrong http version") >>= fun () ->
+      fail_unless (status = `Switching_protocols)
+        (fun () -> protocol_error "wrong status") >>= fun () ->
+      begin match C.Header.get headers "upgrade" with
+      | Some a when String.Ascii.lowercase a = "websocket" -> Lwt.return_unit
+      | _ -> protocol_error "wrong upgrade"
+      end >>= fun () ->
+      fail_unless (upgrade_present headers)
+        (fun () -> protocol_error "upgrade header not present") >>= fun () ->
+      begin match C.Header.get headers "sec-websocket-accept" with
+      | Some accept when accept = b64_encoded_sha1sum (nonce ^ websocket_uuid) -> Lwt.return_unit
+      | _ -> protocol_error "wrong accept"
+      end >>= fun () ->
+      Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri)
     in
     Lwt.catch drain_handshake begin fun exn ->
       Lwt_io.close ic >>= fun () ->
@@ -74,13 +86,13 @@ let with_connection
     Lwt.return (ic, oc)
   in
   connect () >|= fun (ic, oc) ->
-  let read_frame = LwtIO.make_read_frame ~mode:(Client random_string) ic oc in
+  let read_frame = make_read_frame ~mode:(Client random_string) ic oc in
   let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
   let buf = Buffer.create 128 in
   let write_frame frame =
     Buffer.clear buf;
     Lwt.wrap2
-      (LwtIO.write_frame_to_buf ~mode:(Client random_string)) buf frame >>= fun () ->
+      (write_frame_to_buf ~mode:(Client random_string)) buf frame >>= fun () ->
     Lwt_io.write oc @@ Buffer.contents buf in
   read_frame, write_frame
 
@@ -119,18 +131,15 @@ let establish_server
     let version = C.Request.version request in
     let headers = C.Request.headers request in
     let key = C.Header.get headers "sec-websocket-key" in
-    if not (
-        version = `HTTP_1_1
-        && meth = `GET
-        && Option.map ~f:String.Ascii.lowercase @@
-        C.Header.get headers "upgrade" = Some "websocket"
-        && key <> None
-        && upgrade_present headers
-        && check_request request
-      )
-    then write_failed_response oc >>= fun () -> Lwt.fail (Protocol_error "Bad headers")
-    else
-    let key = Option.value_exn key in
+    begin match version, meth, C.Header.get headers "upgrade",
+                key, upgrade_present headers, check_request request with
+    | `HTTP_1_1, `GET, Some up, Some key, true, true
+      when String.Ascii.lowercase up = "websocket" ->
+      Lwt.return key
+    | _ ->
+      write_failed_response oc >>= fun () ->
+      Lwt.fail (Protocol_error "Bad headers")
+    end >>= fun key ->
     let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
     let response_headers = C.Header.of_list
         ["Upgrade", "websocket";

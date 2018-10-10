@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2015 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,10 +24,9 @@
     unframing of messages.
 *)
 
+open Websocket
 open Core
 open Async
-
-module Frame = Websocket.Frame
 
 val client :
   ?log:Log.t ->

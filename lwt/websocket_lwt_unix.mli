@@ -21,7 +21,7 @@
     simple TCP communication, and this library implement framing and
     unframing of messages. *)
 
-include Websocket_lwt.S
+include Websocket.S
   with type 'a IO.t := 'a Cohttp_lwt_unix.IO.t
    and type IO.ic := Cohttp_lwt_unix.IO.ic
    and type IO.oc := Cohttp_lwt_unix.IO.oc

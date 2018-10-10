@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2016 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,17 +15,13 @@
  *
  *)
 
-include Websocket
-
+open Websocket
 open Core
 open Async
 open Cohttp
 
-module Async_IO = IO(Cohttp_async.Io)
+module Async_IO = Websocket.Make(Cohttp_async.Io)
 open Async_IO
-
-module Request_async = Request.Make(Cohttp_async.Io)
-module Response_async = Response.Make(Cohttp_async.Io)
 
 let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
@@ -49,21 +45,21 @@ let client
          "Connection"            , "Upgrade";
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
-    let req = Request.make ~headers uri in
-    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Request.(sexp_of_t req)));
-    Request_async.write (fun _ -> Deferred.unit) req w >>= fun () ->
-    Response_async.read r >>= function
+    let req = Cohttp.Request.make ~headers uri in
+    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Cohttp.Request.(sexp_of_t req)));
+    Request.write (fun _ -> Deferred.unit) req w >>= fun () ->
+    Response.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Response.(sexp_of_t response)));
-      let status = Response.status response in
-      let headers = Response.headers response in
+        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Cohttp.Response.(sexp_of_t response)));
+      let status = Cohttp.Response.status response in
+      let headers = Cohttp.Response.headers response in
       if Code.(is_error @@ code_of_status status) then
         Reader.contents r >>= fun msg ->
         Option.iter log ~f:(fun log -> Log.error log "%s" msg);
         failwith @@ "HTTP Error " ^ Code.(string_of_status status)
-      else if Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
+      else if Cohttp.Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
       else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
       else if Header.(get headers "upgrade") |> Option.map ~f:String.lowercase  <> Some "websocket" then failwith "upgrade error"
       else if not @@ upgrade_present headers then failwith "update not present"
@@ -197,7 +193,7 @@ let server
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
   let handshake r w =
-    (Request_async.read r >>| function
+    (Request.read r >>| function
       | `Ok r -> r
       | `Eof ->
         (* Remote endpoint closed connection. No further action
@@ -219,15 +215,15 @@ let server
         let response = Cohttp.Response.make
             ~status:`Forbidden ()
             ~encoding:(Cohttp.Transfer.Fixed (String.length body |> Int64.of_int)) in
-        let open Response_async in
+        let open Response in
         write ~flush:true
           (fun w -> write_body w body)
           response w >>= fun () ->
         raise Exit
     end >>= fun () ->
-    let meth    = Request.meth request in
-    let version = Request.version request in
-    let headers = Request.headers request in
+    let meth    = Cohttp.Request.meth request in
+    let version = Cohttp.Request.version request in
+    let headers = Cohttp.Request.headers request in
     if not begin
         version = `HTTP_1_1
         && meth = `GET
@@ -251,11 +247,11 @@ let server
         ("Connection", "Upgrade") ::
         ("Sec-WebSocket-Accept", hash) ::
         subprotocol in
-    let response = Response.make
+    let response = Cohttp.Response.make
         ~status:`Switching_protocols
         ~encoding:Transfer.Unknown
         ~headers:(Header.of_list response_headers) () in
-    Response_async.write (fun _ -> Deferred.unit) response w
+    Response.write (fun _ -> Deferred.unit) response w
   in
   Monitor.try_with_or_error ~name
     ~extract_exn:true (fun () -> handshake reader writer) |>

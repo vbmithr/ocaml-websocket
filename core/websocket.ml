@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012-2016 Vincent Bernardoff <vb@luminar.eu.org>
+ * Copyright (c) 2012-2018 Vincent Bernardoff <vb@luminar.eu.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,30 +21,9 @@ let b64_encoded_sha1sum s = Sha1.sha_1 s |> B64.encode ~pad:true
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-module Option = struct
-  let value ~default = function
-  | None -> default
-  | Some v -> v
-
-  let value_map ~default ~f = function
-  | None -> default
-  | Some v -> f v
-
-  let value_exn = function
-  | None -> invalid_arg "Option.value_exn"
-  | Some v -> v
-
-  let map ~f = function
-  | None -> None
-  | Some v -> Some (f v)
-end
-
 module Rng = struct
-  let init ?state () =
-    let state =
-      Option.value state ~default:(Random.self_init (); Random.get_state ()) in
-    fun len ->
-      String.v ~len (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
+  let init ?(state=Random.get_state ()) () = fun len ->
+    String.v ~len (fun _ -> Char.of_byte (Random.State.bits state land 0xFF))
 end
 
 module Frame = struct
@@ -167,7 +146,10 @@ let check_origin_with_host request =
   | None -> failwith "Missing host header" (* mandatory in http/1.1 *)
   | Some host ->
     (* remove port *)
-    let hostname = Option.value_map ~default:host ~f:fst (String.cut ~sep:":" host) in
+    let hostname =
+      match String.cut ~sep:":" host with
+      | None -> host
+      | Some (h, _) -> h in
     check_origin ~hosts:[hostname] request
 
 module type S = sig
@@ -178,11 +160,35 @@ module type S = sig
 
   val make_read_frame :
     ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> (unit -> Frame.t IO.t)
-
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
+
+  module Request : Cohttp.S.Http_io
+    with type t = Cohttp.Request.t
+     and type 'a IO.t = 'a IO.t
+     and type IO.ic = IO.ic
+     and type IO.oc = IO.oc
+  module Response : Cohttp.S.Http_io
+    with type t = Cohttp.Response.t
+     and type 'a IO.t = 'a IO.t
+     and type IO.ic = IO.ic
+     and type IO.oc = IO.oc
+  module Connected_client : sig
+    type t
+
+    val create :
+      ?read_buf:Buffer.t -> ?write_buf:Buffer.t ->
+      Cohttp.Request.t -> Conduit.endp -> IO.ic -> IO.oc -> t
+
+    val make_standard : t -> t
+    val send : t -> Frame.t -> unit IO.t
+    val send_multiple : t -> Frame.t list -> unit IO.t
+    val recv : t -> Frame.t IO.t
+    val http_request : t -> Cohttp.Request.t
+    val source : t -> Conduit.endp
+  end
 end
 
-module IO(IO: Cohttp.S.IO) = struct
+module Make (IO : Cohttp.S.IO) = struct
   open IO
   module IO = IO
 
@@ -303,4 +309,72 @@ module IO(IO: Cohttp.S.IO) = struct
         if frame_masked then xor mask payload;
         let frame = Frame.of_bytes ~opcode ~extension ~final payload in
         return frame
+
+  module Request = Cohttp.Request.Make(IO)
+  module Response = Cohttp.Response.Make(IO)
+
+  module Connected_client = struct
+    type t = {
+      buffer: Buffer.t;
+      endp: Conduit.endp;
+      ic: Request.IO.ic;
+      oc: Request.IO.oc;
+      http_request: Cohttp.Request.t;
+      standard_frame_replies: bool;
+      read_frame: unit -> Frame.t IO.t;
+    }
+
+    let source { endp ; _ } = endp
+
+    let create
+        ?read_buf
+        ?(write_buf=Buffer.create 128)
+        http_request endp ic oc =
+      let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
+      {
+        buffer = write_buf;
+        endp;
+        ic;
+        oc;
+        http_request;
+        standard_frame_replies = false;
+        read_frame;
+      }
+
+    let send { buffer; oc; _ } frame =
+      Buffer.clear buffer;
+      write_frame_to_buf ~mode:Server buffer frame;
+      IO.write oc @@ Buffer.contents buffer
+
+    let send_multiple { buffer; oc; _ } frames =
+      Buffer.clear buffer;
+      List.iter (write_frame_to_buf ~mode:Server buffer) frames;
+      IO.write oc @@ Buffer.contents buffer
+
+    let standard_recv t =
+      t.read_frame () >>= fun fr ->
+      match fr.Frame.opcode with
+      | Frame.Opcode.Ping ->
+        send t @@ Frame.create ~opcode:Frame.Opcode.Pong () >>= fun () ->
+        return fr
+      | Frame.Opcode.Close ->
+        (* Immediately echo and pass this last message to the user *)
+        (if String.length fr.Frame.content >= 2 then
+           send t @@ Frame.create
+             ~opcode:Frame.Opcode.Close
+             ~content:(String.(sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)) ()
+         else send t @@ Frame.close 1000
+        ) >>= fun () ->
+        return fr
+      | _ -> return fr
+
+    let recv t =
+      if t.standard_frame_replies then
+        standard_recv t
+      else
+      t.read_frame ()
+
+    let http_request { http_request; _ } = http_request
+    let make_standard t = { t with standard_frame_replies = true }
+  end
 end
