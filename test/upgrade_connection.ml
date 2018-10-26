@@ -7,16 +7,14 @@ let handler
     (body : Cohttp_lwt.Body.t) =
   let open Frame in
   Lwt_io.eprintf
-        "[CONN] %s\n%!" (Cohttp.Connection.to_string @@ snd conn)
-  >>= fun _ ->
+    "[CONN] %s\n%!" (Cohttp.Connection.to_string @@ snd conn) >>= fun _ ->
   let uri = Cohttp.Request.uri req in
   match Uri.path uri with
   | "/" ->
-    Lwt_io.eprintf "[PATH] /\n%!"
-    >>= fun () ->
+    Lwt_io.eprintf "[PATH] /\n%!" >>= fun () ->
     Cohttp_lwt_unix.Server.respond_string
-    ~status:`OK
-    ~body: {|
+      ~status:`OK
+      ~body: {|
         <html>
         <head>
             <meta charset="utf-8">
@@ -38,50 +36,41 @@ let handler
         </body>
         </html>
         |}
-    ()
+      ()
   | "/ws" ->
-    Lwt_io.eprintf "[PATH] /ws\n%!"
-    >>= fun () ->
-    Cohttp_lwt.Body.drain_body body
-    >>= fun () ->
-    Websocket_cohttp_lwt.upgrade_connection req (fst conn) (
-        fun f ->
-            match f.opcode with
-            | Opcode.Close ->
-                Printf.eprintf "[RECV] CLOSE\n%!"
-            | _ ->
-                Printf.eprintf "[RECV] %s\n%!" f.content
-    )
-    >>= fun (resp, body, frames_out_fn) ->
+    Lwt_io.eprintf "[PATH] /ws\n%!" >>= fun () ->
+    Cohttp_lwt.Body.drain_body body >>= fun () ->
+    Websocket_cohttp_lwt.upgrade_connection req (fst conn) begin fun f ->
+      match f.opcode with
+      | Opcode.Close ->
+        Printf.eprintf "[RECV] CLOSE\n%!"
+      | _ ->
+        Printf.eprintf "[RECV] %s\n%!" f.content
+    end >>= fun (resp, body, frames_out_fn) ->
     (* send a message to the client every second *)
     let _ =
         let num_ref = ref 10 in
         let rec go () =
             if !num_ref > 0 then
                 let msg = Printf.sprintf "-> Ping %d" !num_ref in
-                Lwt_io.eprintf "[SEND] %s\n%!" msg
-                >>= fun () ->
+                Lwt_io.eprintf "[SEND] %s\n%!" msg >>= fun () ->
                 Lwt.wrap1 frames_out_fn @@
-                    Some (Frame.create ~content:msg ())
-                >>= fun () ->
-                Lwt.return (num_ref := !num_ref - 1)
-                >>= fun () ->
-                Lwt_unix.sleep 1.
-                >>= go
+                    Some (Frame.create ~content:msg ()) >>= fun () ->
+                Lwt.return (num_ref := !num_ref - 1) >>= fun () ->
+                Lwt_unix.sleep 1. >>=
+                go
             else
-                Lwt_io.eprintf "[INFO] Test done\n%!"
-                >>= Lwt.return
+            Lwt_io.eprintf "[INFO] Test done\n%!"
         in
         go ()
     in
-    Lwt.return (resp, (body :> Cohttp_lwt.Body.t))
+    Lwt.return (resp, body)
   | _ ->
-    Lwt_io.eprintf "[PATH] Catch-all\n%!"
-    >>= fun () ->
+    Lwt_io.eprintf "[PATH] Catch-all\n%!" >>= fun () ->
     Cohttp_lwt_unix.Server.respond_string
-        ~status:`Not_found
-        ~body:(Sexplib.Sexp.to_string_hum (Cohttp.Request.sexp_of_t req))
-        ()
+      ~status:`Not_found
+      ~body:(Sexplib.Sexp.to_string_hum (Cohttp.Request.sexp_of_t req))
+      ()
 
 let start_server port =
   let conn_closed (ch,_) =
