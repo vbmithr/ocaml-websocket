@@ -23,3 +23,9 @@ val upgrade_connection:
   Conduit_lwt_unix.flow ->
   (Frame.t -> unit) ->
   (Cohttp.Response.t * Cohttp_lwt.Body.t * (Frame.t option -> unit)) Lwt.t
+(** [upgrade_connection req conn incoming_handler] takes [req], a
+    connection request, [conn] a conduit, and [incoming_handler], a
+    function that will process incoming websocket frames, and returns
+    ([resp], [body], [push_frame]) where [resp] and [body] are used to
+    respond to the client and [push_frame] is used to send websocket
+    frames to the client. *)
