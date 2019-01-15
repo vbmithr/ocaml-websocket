@@ -1,8 +1,10 @@
 open Websocket
 open Core
 open Async
-open Log.Global
 open Websocket_async
+
+let () =
+  Logs.set_reporter (Logs_async_reporter.reporter ())
 
 let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
@@ -23,7 +25,6 @@ let client protocol extensions uri =
     in
     let r, w = client_ez
         ~extra_headers
-        ~log:Lazy.(force log)
         ~heartbeat:Time_ns.Span.(of_int_sec 5) uri r w
     in
     Deferred.all_unit [
@@ -49,24 +50,30 @@ let client protocol extensions uri =
     in
     Conduit_async.V2.connect addr >>= tcp_fun
 
+let src = Logs.Src.create "websocket.wscat"
+
 let handle_client addr reader writer =
   let addr_str = Socket.Address.(to_string addr) in
-  info "Client connection from %s" addr_str;
+  Logs_async.info ~src begin fun m ->
+    m "Client connection from %s" addr_str
+  end >>= fun () ->
   let app_to_ws, sender_write = Pipe.create () in
   let receiver_read, ws_to_app = Pipe.create () in
   let check_request req =
-    let req_str = Format.asprintf "%a" Cohttp.Request.pp_hum req in
-    info "Incoming connnection request: %s" req_str ;
+    Logs_async.info ~src begin fun m ->
+      m "Incoming connnection request: %a" Cohttp.Request.pp_hum req
+    end >>= fun () ->
     Deferred.return (Cohttp.Request.(uri req |> Uri.path) = "/ws")
   in
   let rec loop () =
     Pipe.read receiver_read >>= function
     | `Eof ->
-      info "Client %s disconnected" addr_str;
-      Deferred.unit
+      Logs_async.info ~src begin fun m ->
+        m "Client %s disconnected" addr_str
+      end
     | `Ok ({ Frame.opcode; content; _ } as frame) ->
       let open Frame in
-      debug "<- %s" Frame.(show frame);
+      Logs_async.debug ~src (fun m -> m "<- %a" Frame.pp frame) >>= fun () ->
       let frame', closed =
         match opcode with
         | Opcode.Ping -> Some (create ~opcode:Opcode.Pong ~content ()), false
@@ -87,14 +94,14 @@ let handle_client addr reader writer =
         | None ->
           Deferred.unit
         | Some frame' ->
-          debug "-> %s" (show frame');
+          Logs_async.debug ~src (fun m -> m "-> %a" pp frame') >>= fun () ->
           Pipe.write sender_write frame'
       end >>= fun () ->
       if closed then Deferred.unit
       else loop ()
   in
   Deferred.any [
-    begin server ~log:Lazy.(force log)
+    begin server
         ~check_request ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
       | Error err when Error.to_exn err = Exit -> Deferred.unit
       | Error err -> Error.raise err
@@ -114,8 +121,8 @@ let command =
     +> anon ("url" %: string)
   in
   let set_loglevel = function
-    | 2 -> set_level `Info
-    | 3 -> set_level `Debug
+    | 2 -> Logs.set_level (Some Info)
+    | 3 -> Logs.set_level (Some Debug)
     | _ -> ()
   in
   let run protocol extension loglevel is_server url () =

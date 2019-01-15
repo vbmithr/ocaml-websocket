@@ -29,7 +29,6 @@ open Core
 open Async
 
 val client :
-  ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
@@ -43,7 +42,6 @@ val client :
 
 val client_ez :
   ?opcode:Frame.Opcode.t ->
-  ?log:Log.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
   ?heartbeat:Time_ns.Span.t ->
@@ -54,7 +52,6 @@ val client_ez :
   string Pipe.Reader.t * string Pipe.Writer.t
 
 val server :
-  ?log:Log.t ->
   ?name:string ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
   ?select_protocol:(string -> string option) ->
@@ -63,7 +60,7 @@ val server :
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   unit -> unit Deferred.Or_error.t
-(** [server ?log ?request_cb reader writer app_to_ws
+(** [server ?request_cb reader writer app_to_ws
     ws_to_app ()] returns a thread that expects a websocket client
     connected to [reader]/[writer] and, after performing the
     handshake, will resp. read outgoing frames from [app_to_ws] and

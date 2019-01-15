@@ -27,8 +27,11 @@ let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
   Socket.setopt socket Socket.Opt.nodelay true
 
+let src =
+  Logs.Src.create "websocket.async.client"
+    ~doc:"Websocket client for Async"
+
 let client
-    ?log
     ?(name="websocket.client")
     ?(extra_headers = Header.init ())
     ?(random_string = Rng.init ())
@@ -46,18 +49,22 @@ let client
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = Cohttp.Request.make ~headers uri in
-    Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Cohttp.Request.(sexp_of_t req)));
+    Logs_async.debug ~src begin fun m ->
+      m "%a" Sexp.pp_hum Cohttp.Request.(sexp_of_t req)
+    end >>= fun () ->
     Request.write (fun _ -> Deferred.unit) req w >>= fun () ->
     Response.read r >>= function
     | `Eof -> raise End_of_file
     | `Invalid s -> failwith s
     | `Ok response ->
-        Option.iter log ~f:(fun log -> Log.debug log "%s" Sexp.(to_string_hum Cohttp.Response.(sexp_of_t response)));
+      Logs_async.debug ~src begin fun m ->
+        m "%a" Sexp.pp_hum Cohttp.Response.(sexp_of_t response)
+      end >>= fun () ->
       let status = Cohttp.Response.status response in
       let headers = Cohttp.Response.headers response in
       if Code.(is_error @@ code_of_status status) then
         Reader.contents r >>= fun msg ->
-        Option.iter log ~f:(fun log -> Log.error log "%s" msg);
+        Logs_async.err ~src (fun m -> m "%s" msg) >>= fun () ->
         failwith @@ "HTTP Error " ^ Code.(string_of_status status)
       else if Cohttp.Response.version response <> `HTTP_1_1 then failwith "HTTP version error"
       else if status <> `Switching_protocols then failwith @@ "status error " ^ Code.(string_of_status status)
@@ -105,7 +112,6 @@ let client
 
 let client_ez
     ?opcode
-    ?log
     ?(name="websocket.client_ez")
     ?extra_headers
     ?heartbeat
@@ -126,7 +132,7 @@ let client_ez
   end in
   let send_ping w span =
     let now = Time_ns.now () in
-    Option.iter log ~f:(fun log -> Log.debug log "-> PING");
+    Logs_async.debug ~src (fun m -> m "-> PING") >>= fun () ->
     Pipe.write w @@ Frame.create
       ~opcode:Frame.Opcode.Ping
       ~content:(Time_ns.to_string_fix_proto `Utc now) () >>| fun () ->
@@ -137,7 +143,7 @@ let client_ez
   in
   let react w fr =
     let open Frame in
-    Option.iter log ~f:(fun log -> Log.debug log "<- %s" Frame.(show fr));
+    Logs_async.debug ~src (fun m -> m "<- %a" Frame.pp fr) >>= fun () ->
     match fr.opcode with
     | Opcode.Ping ->
         Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () ->
@@ -176,7 +182,7 @@ let client_ez
       ~finally:(fun () -> Lazy.force cleanup ; Deferred.unit)
       begin fun () ->
         Deferred.any_unit [
-          (client ~name ?extra_headers ?log ?random_string ~initialized
+          (client ~name ?extra_headers ?random_string ~initialized
              ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore) ;
           react () ;
           Deferred.all_unit Pipe.[ closed client_read ; closed client_write ; ]
@@ -185,27 +191,30 @@ let client_ez
   end;
   client_read, client_write
 
+let src =
+  Logs.Src.create "websocket.async.server"
+    ~doc:"Websocket server for Async"
+
 let server
-    ?log
     ?(name="websocket.server")
     ?(check_request = fun _ -> Deferred.return true)
     ?(select_protocol = fun _ -> None)
     ~reader ~writer
     ~app_to_ws ~ws_to_app () =
   let handshake r w =
-    (Request.read r >>| function
-      | `Ok r -> r
+    (Request.read r >>= function
+      | `Ok r -> Deferred.return r
       | `Eof ->
         (* Remote endpoint closed connection. No further action
            necessary here. *)
-        Option.iter log ~f:begin fun log ->
-          Log.info log "Remote endpoint closed connection"
-        end ;
+        Logs_async.info ~src begin fun m ->
+          m "Remote endpoint closed connection"
+        end >>= fun () ->
         raise End_of_file
       | `Invalid reason ->
-        Option.iter log ~f:begin fun log ->
-          Log.info log "Invalid input from remote endpoint: %s" reason
-        end ;
+        Logs_async.info ~src begin fun m ->
+          m "Invalid input from remote endpoint: %s" reason
+        end >>= fun () ->
         failwith reason) >>= fun request ->
     begin
       check_request request >>= function

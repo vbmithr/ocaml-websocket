@@ -50,6 +50,9 @@ module Frame : sig
     content: string ;
   }
 
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+
   val create :
     ?opcode:Opcode.t ->
     ?extension:int ->
@@ -58,7 +61,6 @@ module Frame : sig
     unit -> t
 
   val close : int -> t
-  val show : t -> string
 end
 
 val check_origin :

@@ -3,11 +3,11 @@
   (public_name websocket-async)
   (modules websocket_async)
   (optional)
-  (libraries websocket cohttp-async))
+  (libraries websocket logs-async cohttp-async))
 
 (executable
  (name wscat)
  (public_name wscat-async)
  (package websocket-async)
  (modules wscat)
- (libraries uri.services websocket-async))
+ (libraries uri.services logs-async-reporter websocket-async))
