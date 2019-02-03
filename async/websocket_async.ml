@@ -294,3 +294,82 @@ let server
          Pipe.closed app_to_ws]
     end >>= Deferred.Or_error.return
   end
+
+let upgrade_connection
+    ?(select_protocol = fun _ -> None)
+    ?(ping_interval = sec 50.)
+    ~app_to_ws ~ws_to_app
+    ~f
+    request =
+  let headers = Cohttp.Request.headers request in
+  let key = Option.value_exn
+      ~message:"missing sec-websocket-key"
+      (Header.get headers "sec-websocket-key") in
+  let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
+  let subprotocol = Option.value_map
+      (Header.get headers "sec-websocket-protocol") ~default:[] ~f:begin fun p ->
+      Option.value_map (select_protocol p) ~default:[] ~f:begin fun selected ->
+        ["Sec-WebSocket-Protocol", selected]
+      end
+    end in
+  let response_headers =
+    ("Upgrade", "websocket") ::
+    ("Connection", "Upgrade") ::
+    ("Sec-WebSocket-Accept", hash) ::
+    subprotocol in
+  let response = Cohttp.Response.make
+      ~status:`Switching_protocols
+      ~encoding:Transfer.Unknown
+      ~headers:(Header.of_list response_headers)
+      () in
+  let handler reader writer =
+    let read_frame =
+      make_read_frame ~mode:Server reader writer
+    in
+    let rec loop () =
+      try_with read_frame
+      >>= function
+      | Error _ -> Deferred.unit
+      | Ok frame ->
+        Pipe.write ws_to_app frame
+        >>= loop
+    in
+    let buf = Buffer.create 128 in
+    let frame_to_string fr =
+        Buffer.clear buf;
+        write_frame_to_buf ~mode:Server buf fr;
+        Buffer.contents buf
+    in
+    let rec ping () =
+      if Time.Span.compare ping_interval Time.Span.zero = 0 then
+        Deferred.never ()
+      else begin
+        Clock.after ping_interval >>= fun () ->
+        match Writer.is_closed writer with
+        | true -> Deferred.unit
+        | false ->
+          Writer.write writer (frame_to_string Frame.(create ~opcode:Opcode.Ping ()));
+          ping ()
+      end
+    in
+    let transfer_end () =
+      Pipe.transfer app_to_ws Writer.(pipe writer) ~f:frame_to_string
+    in
+    let finally () =
+      Pipe.close ws_to_app;
+      Pipe.close_read app_to_ws;
+      Deferred.unit
+    in
+    Monitor.protect ~finally begin fun () ->
+      set_tcp_nodelay writer;
+      Deferred.all_unit [
+        Deferred.any [
+          transfer_end ();
+          loop ();
+          ping ();
+          Pipe.closed ws_to_app;
+          Pipe.closed app_to_ws];
+        f()]
+    end
+  in
+  (response, handler)

@@ -71,3 +71,61 @@ val server :
     with the request as its argument. If [request_cb] returns true,
     the connection will proceed, otherwise, the result is immediately
     determined to [Error Exit]. *)
+
+val upgrade_connection :
+  ?select_protocol:(string -> string option) ->
+  ?ping_interval:Core.Time.Span.t ->
+  app_to_ws:(Frame.t Pipe.Reader.t) ->
+  ws_to_app:(Frame.t Pipe.Writer.t) ->
+  f:(unit -> unit Deferred.t) ->
+  Cohttp.Request.t ->
+  Cohttp.Response.t * (Reader.t -> Writer.t -> unit Deferred.t)
+(** [upgrade_connection ?select_protocol ?ping_interval
+    app_to_ws ws_to_app f request] returns a Cohttp_async.Server.response_action.
+
+    Just wrap the return value of this function with [`Expert].
+    You can combine responses both of HTTP `Response handler and Websocket `Expert handler.
+
+    your handler will looks like this:
+
+    ```
+    let response =
+      let app_to_ws, ws_write = Pipe.create () in
+      let ws_read, ws_to_app = Pipe.create () in
+      Websocket_async.upgrade_connection request ~app_to_ws ~ws_to_app ~f:begin fun () ->
+        let rec loop () =
+          let open Websocket in
+          match%bind Pipe.read ws_read with
+          | `Eof -> return ()
+          | `Ok ({ Frame.opcode; content; _ } as frame) ->
+            let open Frame in
+            let frame', closed =
+              match opcode with
+              | Opcode.Ping -> Some (create ~opcode:Opcode.Pong ~content ()), false
+              | Opcode.Close ->
+                (* Immediately echo and pass this last message to the user *)
+                if String.length content >= 2 then
+                  Some (create ~opcode:Opcode.Close
+                          ~content:(String.sub content ~pos:0 ~len:2) ()), true
+                else
+                  Some (close 100), true
+              | Opcode.Pong -> None, false
+              | Opcode.Text
+              | Opcode.Binary -> Some frame, false
+              | _ -> Some (close 1002), false
+            in
+            begin
+              match frame' with
+              | None       -> Deferred.unit
+              | Some frame -> Pipe.write ws_write frame
+            end >>= fun () ->
+            if closed
+            then Deferred.unit
+            else loop ()
+        in
+        loop ()
+      end
+    in
+    return (`Expert response)
+    ```
+*)
