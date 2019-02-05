@@ -74,7 +74,7 @@ val server :
 
 val upgrade_connection :
   ?select_protocol:(string -> string option) ->
-  ?ping_interval:Core.Time.Span.t ->
+  ?ping_interval:Core.Time_ns.Span.t ->
   app_to_ws:(Frame.t Pipe.Reader.t) ->
   ws_to_app:(Frame.t Pipe.Writer.t) ->
   f:(unit -> unit Deferred.t) ->

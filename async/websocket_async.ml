@@ -297,7 +297,7 @@ let server
 
 let upgrade_connection
     ?(select_protocol = fun _ -> None)
-    ?(ping_interval = sec 50.)
+    ?(ping_interval = Time_ns.Span.of_int_sec 50)
     ~app_to_ws ~ws_to_app
     ~f
     request =
@@ -341,10 +341,10 @@ let upgrade_connection
         Buffer.contents buf
     in
     let rec ping () =
-      if Time.Span.compare ping_interval Time.Span.zero = 0 then
+      if Time_ns.Span.(ping_interval = zero) then
         Deferred.never ()
       else begin
-        Clock.after ping_interval >>= fun () ->
+        Clock_ns.after ping_interval >>= fun () ->
         match Writer.is_closed writer with
         | true -> Deferred.unit
         | false ->
