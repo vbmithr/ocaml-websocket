@@ -340,17 +340,21 @@ let upgrade_connection
         write_frame_to_buf ~mode:Server buf fr;
         Buffer.contents buf
     in
-    let rec ping () =
+    let ping () =
       if Time_ns.Span.(ping_interval = zero) then
         Deferred.never ()
-      else begin
+      else
+      let ping_frame_string =
+        frame_to_string Frame.(create ~opcode:Opcode.Ping ()) in
+      let rec ping_loop () =
         Clock_ns.after ping_interval >>= fun () ->
         match Writer.is_closed writer with
         | true -> Deferred.unit
         | false ->
-          Writer.write writer (frame_to_string Frame.(create ~opcode:Opcode.Ping ()));
-          ping ()
-      end
+          Writer.write writer ping_frame_string;
+          ping_loop ()
+      in
+      ping_loop ()
     in
     let transfer_end () =
       Pipe.transfer app_to_ws Writer.(pipe writer) ~f:frame_to_string
