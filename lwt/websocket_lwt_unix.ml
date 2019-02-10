@@ -44,7 +44,7 @@ let with_connection
     client uri =
   let connect () =
     let module C = Cohttp in
-    let nonce = random_string 16 |> B64.encode ~pad:true in
+    let nonce = Base64.encode_exn (random_string 16) in
     let headers = C.Header.add_list extra_headers
         ["Upgrade"               , "websocket";
          "Connection"            , "Upgrade";

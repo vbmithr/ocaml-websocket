@@ -17,7 +17,7 @@
 
 open Astring
 
-let b64_encoded_sha1sum s = Sha1.sha_1 s |> B64.encode ~pad:true
+let b64_encoded_sha1sum s = Base64.encode_exn (Sha1.sha_1 s)
 
 let websocket_uuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
