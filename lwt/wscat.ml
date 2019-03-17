@@ -16,8 +16,8 @@ let client uri =
     | Opcode.Close ->
       (* Immediately echo and pass this last message to the user *)
       (if String.length fr.content >= 2 then
-        send @@ Frame.create ~opcode:Opcode.Close
-          ~content:(String.sub fr.content 0 2) ()
+         send @@ Frame.create ~opcode:Opcode.Close
+           ~content:(String.sub fr.content 0 2) ()
        else send @@ Frame.close 1000) >>= fun () ->
       Lwt.fail Exit
 
@@ -93,20 +93,18 @@ let main is_server uri =
   else client uri
 
 let apply_loglevel = function
-  | 2 -> Lwt_log.(add_rule "*" Info)
-  | 3 -> Lwt_log.(add_rule "*" Debug)
-  | _ -> ()
+| 2 -> Lwt_log.(add_rule "*" Info)
+| 3 -> Lwt_log.(add_rule "*" Debug)
+| _ -> ()
 
-let _ =
+let () =
   let uri = ref "" in
   let server = ref false in
-
-  let speclist = Arg.align
-      [ "-s", Arg.Set server, " Run as server";
-        "-loglevel", Arg.Int apply_loglevel, "1-3 Set loglevel";
-      ]
-  in
+  let speclist = Arg.align [
+      "-s", Arg.Set server, " Run as server";
+      "-loglevel", Arg.Int apply_loglevel, "1-3 Set loglevel";
+    ] in
   let anon_fun s = uri := s in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> uri\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg;
-  Lwt_main.run @@ main server @@ Uri.of_string !uri
+  Lwt_main.run (main server (Uri.of_string !uri))
