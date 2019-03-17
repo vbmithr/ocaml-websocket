@@ -1,3 +1,11 @@
+2.13 (2019-03-17)
+-----------------
+
+- Async: use logs_async
+- Async: upgrade_connection API (@kkazuo)
+- Lwt: fix upgrade_connection for TLS (API change)
+- Upgrade Base64 support to 3.1.0
+
 2.12 (2018-10-01)
 -----------------
 

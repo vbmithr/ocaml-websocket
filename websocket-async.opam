@@ -1,6 +1,6 @@
 opam-version: "2.0"
 name: "websocket-async"
-version: "2.12"
+version: "2.13"
 authors: "Vincent Bernardoff <vb@luminar.eu.org>"
 maintainer: "Vincent Bernardoff <vb@luminar.eu.org>"
 homepage: "https://github.com/vbmithr/ocaml-websocket"
@@ -11,11 +11,14 @@ tags: [
   "org:mirage"
   "org:xapi-project"
 ]
-build: [ "dune" "build" "-j" jobs "-p" name "@install" ]
+build: [ "dune" "build" "-j" jobs "-p" name ]
 depends: [
+  "ocaml" {>= "4.06.0"}
   "dune" {build & >= "1.1.1"}
-  "websocket" {= "2.12"}
+  "websocket" {= version}
   "cohttp-async" {>= "1.1.1"}
+  "logs-async" {>= "1.0"}
+  "logs-async-reporter" {>= "1.0"}
 ]
 synopsis: "Websocket library (Async)"
 description: """
