@@ -20,12 +20,12 @@ open Websocket
 
 val upgrade_connection:
   Cohttp.Request.t ->
-  Conduit_lwt_unix.flow ->
   (Frame.t -> unit) ->
-  (Cohttp.Response.t * Cohttp_lwt.Body.t * (Frame.t option -> unit)) Lwt.t
-(** [upgrade_connection req conn incoming_handler] takes [req], a
-    connection request, [conn] a conduit, and [incoming_handler], a
-    function that will process incoming websocket frames, and returns
-    ([resp], [body], [push_frame]) where [resp] and [body] are used to
-    respond to the client and [push_frame] is used to send websocket
+  (Cohttp_lwt_unix.Server.response_action *
+   (Frame.t option -> unit)) Lwt.t
+(** [upgrade_connection req incoming_handler] takes [req], a
+    connection request, and [incoming_handler], a function that will
+    process incoming websocket frames, and returns ([response_action],
+    [push_frame]) where [response_action] is used to produce a
+    [Cohttp_lwt.Server.t] and [push_frame] is used to send websocket
     frames to the client. *)

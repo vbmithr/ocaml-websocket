@@ -6,4 +6,4 @@
 (executable
  (name upgrade_connection)
  (modules upgrade_connection)
- (libraries websocket_cohttp_lwt))
+ (libraries logs.fmt logs.lwt websocket_cohttp_lwt))
