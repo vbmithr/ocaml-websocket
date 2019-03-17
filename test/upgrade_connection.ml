@@ -93,21 +93,50 @@ let handler (_, conn) req body =
       () >|= fun resp ->
     `Response resp
 
-let start_server port =
-  let conn_closed (ch,_) =
+let start_server ?tls port =
+  let conn_closed (_,c) =
     Logs.app ~src begin fun m ->
       m "[SERV] connection %a closed" Sexplib.Sexp.pp
-        (Conduit_lwt_unix.sexp_of_flow ch)
-    end
-  in
+        (Cohttp.Connection.sexp_of_t c)
+    end in
   Logs_lwt.app ~src begin fun m ->
     m "[SERV] Listening for HTTP on port %d" port
   end >>= fun () ->
-  Cohttp_lwt_unix.Server.create
-    ~mode:(`TCP (`Port port))
-    (Cohttp_lwt_unix.Server.make_response_action ~callback:handler ~conn_closed ())
+  let mode = match tls with
+  | None ->
+    Logs.app ~src (fun m -> m "TCP mode selected") ;
+    `TCP (`Port port)
+  | Some (cert, key) ->
+    Logs.app ~src (fun m -> m "TLS mode selected") ;
+    `TLS (`Crt_file_path cert,
+          `Key_file_path key,
+          `No_password,
+          `Port port) in
+  Cohttp_lwt_unix.Server.create ~mode
+    (Cohttp_lwt_unix.Server.make_response_action
+       ~callback:handler ~conn_closed ())
 
 let () =
   Logs.(set_reporter (lwt_reporter ())) ;
-  Logs.(set_level (Some Debug)) ;
-  Lwt_main.run (start_server 7777)
+  let port = ref 7777 in
+  let cert = ref "" in
+  let key = ref "" in
+  let speclist = Arg.align [
+      "-cert", Arg.Set_string cert, " cert file";
+      "-key", Arg.Set_string key, " key file";
+      "-v", Arg.Unit (fun () ->
+          Logs.set_level (Some Info)), " Set loglevel to info";
+      "-vv", Arg.Unit (fun () ->
+          Logs.set_level (Some Debug)), " Set loglevel to debug";
+    ] in
+  let anon_fun s =
+    match int_of_string_opt s with
+    | None -> invalid_arg "argument must be a port number"
+    | Some p -> port := p in
+  let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> port\nOptions are:" in
+  Arg.parse speclist anon_fun usage_msg;
+  let tls = match !cert, !key with
+  | "", _
+  | _, "" -> None
+  | cert, key -> Some (cert, key) in
+  Lwt_main.run (start_server ?tls !port)
