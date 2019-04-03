@@ -20,6 +20,8 @@ open Core
 open Async
 open Cohttp
 
+module Frame = Websocket.Frame
+
 module Async_IO = Websocket.Make(Cohttp_async.Io)
 open Async_IO
 

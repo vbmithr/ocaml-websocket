@@ -28,6 +28,8 @@ open Websocket
 open Core
 open Async
 
+module Frame = Websocket.Frame
+
 val client :
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
