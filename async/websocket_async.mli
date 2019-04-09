@@ -24,7 +24,6 @@
     unframing of messages.
 *)
 
-open Websocket
 open Core
 open Async
 

@@ -1,4 +1,3 @@
-open Websocket
 open Core
 open Async
 open Websocket_async
