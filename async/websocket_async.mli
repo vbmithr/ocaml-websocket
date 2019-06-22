@@ -52,6 +52,9 @@ val client_ez :
   Writer.t ->
   string Pipe.Reader.t * string Pipe.Writer.t
 
+val client_connect : string -> (string Pipe.Reader.t * string Pipe.Writer.t) Deferred.Or_error.t
+(** [client_connect url] provides an easy way of opening a connection given a websocket URL *)
+
 val server :
   ?name:string ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->

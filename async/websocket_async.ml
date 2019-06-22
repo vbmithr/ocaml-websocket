@@ -193,6 +193,47 @@ let client_ez
   end;
   client_read, client_write
 
+let port_from_scheme = function
+  | "ws" -> Some 80
+  | "wss" -> Some 443
+  | _ -> None
+
+let port_from_uri uri =
+  match Uri.port uri with
+  | Some i -> Some i
+  | None ->
+    let scheme = Option.value ~default:"" (Uri.scheme uri) in
+    (match port_from_scheme scheme, Uri_services.tcp_port_of_uri uri with
+    | None, None -> None
+    | _, Some p -> Some p
+    | Some p, _ -> Some p)
+
+let client_connect url =
+  Deferred.Or_error.try_with_join (fun () ->
+      let uri = Uri.of_string url in
+      let scheme = Option.value_exn ~message:"missing scheme" (Uri.scheme uri) in
+      let host = Option.value_exn ~message:"missing host" (Uri.host uri) in
+      let port =
+        Option.value_exn ~message:"unable to determind port" (port_from_uri uri)
+      in
+      Unix.Addr_info.get ~service:(Int.to_string port) ~host []
+      >>= fun infos ->
+      match infos with
+      | [] -> Deferred.Or_error.fail (Error.of_string "DNS resolution failed")
+      | { ai_addr; _ } :: _ ->
+        let addr =
+          match scheme, ai_addr with
+          | _, ADDR_UNIX path -> `Unix_domain_socket path
+          | "https", ADDR_INET (h, p) | "wss", ADDR_INET (h, p) ->
+            let h = Ipaddr_unix.of_inet_addr h in
+            `OpenSSL (h, p, Conduit_async.V2.Ssl.Config.create ())
+          | _, ADDR_INET (h, p) ->
+            let h = Ipaddr_unix.of_inet_addr h in
+            `TCP (h, p)
+        in
+        Conduit_async.V2.connect addr
+        >>= fun (r, w) -> Deferred.Or_error.return @@ client_ez uri r w)
+
 let src =
   Logs.Src.create "websocket.async.server"
     ~doc:"Websocket server for Async"
