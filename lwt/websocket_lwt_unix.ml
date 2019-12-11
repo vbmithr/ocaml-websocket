@@ -113,7 +113,7 @@ let write_failed_response oc =
 let establish_server
     ?read_buf ?write_buf
     ?timeout ?stop
-    ?on_exn
+    ?(on_exn=(fun exn -> !Lwt.async_exception_hook exn))
     ?(check_request=check_origin_with_host)
     ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
   let module C = Cohttp in
@@ -154,7 +154,7 @@ let establish_server
       Connected_client.create ?read_buf ?write_buf request flow ic oc in
     react client
   in
-  Conduit_lwt_unix.serve ?on_exn ?timeout ?stop ~ctx ~mode begin fun flow ic oc ->
+  Conduit_lwt_unix.serve ~on_exn ?timeout ?stop ~ctx ~mode begin fun flow ic oc ->
     set_tcp_nodelay flow;
     server_fun (Conduit_lwt_unix.endp_of_flow flow) ic oc
   end
