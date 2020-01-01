@@ -62,7 +62,7 @@ let handle_client addr reader writer =
     Logs_async.info ~src begin fun m ->
       m "Incoming connnection request: %a" Cohttp.Request.pp_hum req
     end >>= fun () ->
-    Deferred.return (Cohttp.Request.(uri req |> Uri.path) = "/ws")
+    Deferred.return (String.equal Cohttp.Request.(uri req |> Uri.path) "/ws")
   in
   let rec loop () =
     Pipe.read receiver_read >>= function
@@ -102,7 +102,7 @@ let handle_client addr reader writer =
   Deferred.any [
     begin server
         ~check_request ~app_to_ws ~ws_to_app ~reader ~writer () >>= function
-      | Error err when Error.to_exn err = Exit -> Deferred.unit
+      | Error err when Poly.equal (Error.to_exn err) Exit -> Deferred.unit
       | Error err -> Error.raise err
       | Ok () -> Deferred.unit
     end ;
