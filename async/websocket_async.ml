@@ -17,6 +17,7 @@
 
 open Websocket
 open Core
+open Core.Poly
 open Async
 open Cohttp
 
@@ -185,7 +186,7 @@ let client_ez
       begin fun () ->
         Deferred.any_unit [
           (client ~name ?extra_headers ?random_string ~initialized
-             ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore) ;
+             ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri |> Deferred.ignore_m) ;
           react () ;
           Deferred.all_unit Pipe.[ closed client_read ; closed client_write ; ]
         ]
