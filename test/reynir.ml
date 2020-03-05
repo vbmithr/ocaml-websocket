@@ -10,7 +10,7 @@ let handler id client =
   let send = Connected_client.send client in
   Lwt_log.ign_info_f ~section "New connection (id = %d)" id;
   Lwt.async (fun () ->
-      Lwt_unix.sleep 1.0 >|= fun () ->
+      Lwt_unix.sleep 1.0 >>= fun () ->
       send @@ Frame.create ~content:"Delayed message" ()
     );
   let rec recv_forever () =
