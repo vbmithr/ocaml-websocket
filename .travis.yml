@@ -1,0 +1,12 @@
+language: c
+sudo: required
+install: test -e .travis.opam.sh || wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
+script:
+- bash -ex .travis-opam.sh
+env:
+  matrix:
+    - OCAML_VERSION="4.09" PACKAGE="websocket"
+    - OCAML_VERSION="4.09" PACKAGE="websocket-lwt-unix"
+    - OCAML_VERSION="4.09" PACKAGE="websocket-async"
+os:
+- linux
