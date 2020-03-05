@@ -62,7 +62,7 @@ let upgrade_connection request incoming_handler =
   in
   let frames_out_stream, frames_out_fn = Lwt_stream.create () in
   let f ic oc =
-    Lwt.join [
+    Lwt.pick [
       (* input: data from the client is read from the input channel
        * of the tcp connection; pass it to handler function *)
       read_frames ic oc incoming_handler;
