@@ -105,14 +105,14 @@ module type S = sig
 
     val create :
       ?read_buf:Buffer.t -> ?write_buf:Buffer.t ->
-      Cohttp.Request.t -> Conduit.endp -> IO.ic -> IO.oc -> t
+      Cohttp.Request.t -> IO.conn -> IO.ic -> IO.oc -> t
 
     val make_standard : t -> t
     val send : t -> Frame.t -> unit IO.t
     val send_multiple : t -> Frame.t list -> unit IO.t
     val recv : t -> Frame.t IO.t
     val http_request : t -> Cohttp.Request.t
-    val source : t -> Conduit.endp
+    val source : t -> IO.conn
   end
 end
 
@@ -120,4 +120,5 @@ module Make (IO : Cohttp.S.IO) : S
   with type 'a IO.t = 'a IO.t
    and type IO.ic = IO.ic
    and type IO.oc = IO.oc
+   and type IO.conn = IO.conn
 

@@ -5,6 +5,8 @@ open Websocket_async
 let () =
   Logs.set_reporter (Logs_async_reporter.reporter ())
 
+let failwith fmt = Stdlib.Format.kasprintf Stdlib.failwith fmt
+
 let client protocol extensions uri =
   let host = Option.value_exn ~message:"no host in uri" Uri.(host uri) in
   let port =
@@ -36,18 +38,30 @@ let client protocol extensions uri =
   Unix.Addr_info.get ~service:(string_of_int port) ~host [] >>= function
   | [] -> failwithf "DNS resolution failed for %s" host ()
   | { ai_addr; _ } :: _ ->
-    let addr =
-      match scheme, ai_addr with
-      | _, ADDR_UNIX path -> `Unix_domain_socket path
+    let flow = match scheme, ai_addr with
+      | _, ADDR_UNIX path ->
+        Conduit_async.flow_of_endpoint ~key:Conduit_async_tcp.endpoint
+          (Conduit_async_tcp.Unix (`Unix path))
       | "https", ADDR_INET (h, p)
       | "wss", ADDR_INET (h, p) ->
-        let h = Ipaddr_unix.of_inet_addr h in
-        `OpenSSL (h, p, Conduit_async.V2.Ssl.Config.create ())
+        let tcp_edn = Conduit_async_tcp.Inet (`Inet (h, p)) in
+        let ctx = Conduit_async_ssl.context () in
+        Conduit_async.flow_of_endpoint ~key:Conduit_async_ssl.TCP.endpoint
+          (ctx, tcp_edn)
       | _, ADDR_INET (h, p) ->
-        let h = Ipaddr_unix.of_inet_addr h in
-        `TCP (h, p)
-    in
-    Conduit_async.V2.connect addr >>= tcp_fun
+        Conduit_async.flow_of_endpoint ~key:Conduit_async_tcp.endpoint
+          (Conduit_async_tcp.Inet (`Inet (h, p))) in
+    flow >>= function
+    | Error err -> failwith "%a" Conduit_async.pp_error err
+    | Ok flow -> match Conduit_async.is flow Conduit_async_tcp.protocol,
+                       Conduit_async.is flow Conduit_async_ssl.TCP.protocol with
+      | Some flow, None ->
+        let open Conduit_async_tcp in
+        tcp_fun (Protocol.reader flow, Protocol.writer flow)
+      | None, Some { Conduit_async_ssl.reader; writer; _ } ->
+        tcp_fun (reader, writer)
+      | _ ->
+        Conduit_async.reader_and_writer_of_flow flow >>= tcp_fun
 
 let src = Logs.Src.create "websocket.wscat"
 

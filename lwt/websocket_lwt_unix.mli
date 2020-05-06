@@ -29,8 +29,7 @@ include Websocket.S
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  Conduit_lwt_unix.client ->
+  resolvers:Conduit.resolvers ->
   Uri.t ->
   ((unit -> Websocket.Frame.t Lwt.t) * (Websocket.Frame.t -> unit Lwt.t)) Lwt.t
 
@@ -41,8 +40,7 @@ val establish_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  mode:Conduit_lwt_unix.server ->
+  key:'cfg Conduit_lwt.key -> ('master * 'flow) Conduit_lwt.Witness.service -> 'cfg ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
 (** [exception_handler] defaults to [Lwt.async_exception_hook]
@@ -64,8 +62,7 @@ val establish_standard_server :
   ?stop:unit Lwt.t ->
   ?on_exn:(exn -> unit) ->
   ?check_request:(Cohttp.Request.t -> bool) ->
-  ?ctx:Conduit_lwt_unix.ctx ->
-  mode:Conduit_lwt_unix.server ->
+  key:'cfg Conduit_lwt.key -> ('master * 'flow) Conduit_lwt.Witness.service -> 'cfg ->
   (Connected_client.t -> unit Lwt.t) ->
   unit Lwt.t
 (** [establish_standard_server] is like {!establish_server} but with

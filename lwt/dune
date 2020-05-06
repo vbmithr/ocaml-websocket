@@ -3,7 +3,9 @@
  (public_name websocket-lwt-unix)
  (modules websocket_lwt_unix)
  (optional)
- (libraries lwt_log cohttp-lwt-unix websocket))
+ (libraries
+   conduit-lwt-unix.tcp
+   lwt_log cohttp-lwt-unix websocket))
 
 (library
  (name websocket_cohttp_lwt)

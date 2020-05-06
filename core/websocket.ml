@@ -177,14 +177,14 @@ module type S = sig
 
     val create :
       ?read_buf:Buffer.t -> ?write_buf:Buffer.t ->
-      Cohttp.Request.t -> Conduit.endp -> IO.ic -> IO.oc -> t
+      Cohttp.Request.t -> IO.conn -> IO.ic -> IO.oc -> t
 
     val make_standard : t -> t
     val send : t -> Frame.t -> unit IO.t
     val send_multiple : t -> Frame.t list -> unit IO.t
     val recv : t -> Frame.t IO.t
     val http_request : t -> Cohttp.Request.t
-    val source : t -> Conduit.endp
+    val source : t -> IO.conn
   end
 end
 
@@ -316,7 +316,7 @@ module Make (IO : Cohttp.S.IO) = struct
   module Connected_client = struct
     type t = {
       buffer: Buffer.t;
-      endp: Conduit.endp;
+      endp: IO.conn;
       ic: Request.IO.ic;
       oc: Request.IO.oc;
       http_request: Cohttp.Request.t;
@@ -329,11 +329,11 @@ module Make (IO : Cohttp.S.IO) = struct
     let create
         ?read_buf
         ?(write_buf=Buffer.create 128)
-        http_request endp ic oc =
+        http_request flow ic oc =
       let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
       {
         buffer = write_buf;
-        endp;
+        endp= flow;
         ic;
         oc;
         http_request;

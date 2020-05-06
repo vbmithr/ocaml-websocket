@@ -10,4 +10,4 @@
  (public_name wscat-async)
  (package websocket-async)
  (modules wscat)
- (libraries uri.services logs-async-reporter websocket-async))
+ (libraries conduit-async.tcp conduit-async.ssl uri.services logs-async-reporter websocket-async))

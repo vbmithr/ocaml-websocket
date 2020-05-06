@@ -26,10 +26,12 @@ let http_error msg = Lwt.fail (HTTP_Error msg)
 let protocol_error msg = Lwt.fail (Protocol_error msg)
 
 let set_tcp_nodelay flow =
-  let open Conduit_lwt_unix in
-  match flow with
-  | TCP { fd; _ } -> Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
-  | _ -> ()
+  let open Conduit_lwt_unix_tcp in
+  match Conduit_lwt.is flow protocol with
+  | Some flow ->
+    let fd = Protocol.file_descr flow in
+    Lwt_unix.setsockopt fd Lwt_unix.TCP_NODELAY true
+  | None -> ()
 
 let fail_unless eq f =
   if not eq then f () else Lwt.return_unit
@@ -37,11 +39,17 @@ let fail_unless eq f =
 let fail_if eq f =
   if eq then f () else Lwt.return_unit
 
+let failf fmt = Format.kasprintf (fun err -> Lwt.fail (Failure err)) fmt
+
+let result_fold ~ok ~error = function
+  | Ok x -> ok x
+  | Error err -> error err
+
 let with_connection
     ?(extra_headers = Cohttp.Header.init ())
     ?(random_string=Websocket.Rng.init ())
-    ?(ctx=Conduit_lwt_unix.default_ctx)
-    client uri =
+    ~resolvers
+    uri =
   let connect () =
     let module C = Cohttp in
     let nonce = Base64.encode_exn (random_string 16) in
@@ -51,7 +59,12 @@ let with_connection
          "Sec-WebSocket-Key"     , nonce;
          "Sec-WebSocket-Version" , "13"] in
     let req = C.Request.make ~headers uri in
-    Conduit_lwt_unix.connect ~ctx client >>= fun (flow, ic, oc) ->
+    let domain_name = match Uri.host uri with
+      | Some v -> Domain_name.(host_exn (of_string_exn v))
+      | None -> invalid_arg "Uri requires a host" in
+    Conduit_lwt_unix.flow resolvers domain_name >>=
+    result_fold ~ok:Lwt.return ~error:(failf "%a" Conduit_lwt_unix.pp_error) >>= fun flow ->
+    let ic, oc = Conduit_lwt_unix.io_of_flow flow in
     set_tcp_nodelay flow;
     let drain_handshake () =
       Request.write (fun _writer -> Lwt.return ()) req oc >>= fun () ->
@@ -112,10 +125,10 @@ let write_failed_response oc =
 
 let establish_server
     ?read_buf ?write_buf
-    ?timeout ?stop
+    ?timeout:_ ?stop
     ?(on_exn=(fun exn -> !Lwt.async_exception_hook exn))
     ?(check_request=check_origin_with_host)
-    ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
+    ~key service cfg react =
   let module C = Cohttp in
   let server_fun flow ic oc =
     (Request.read ic >>= function
@@ -154,10 +167,18 @@ let establish_server
       Connected_client.create ?read_buf ?write_buf request flow ic oc in
     react client
   in
-  Conduit_lwt_unix.serve ~on_exn ?timeout ?stop ~ctx ~mode begin fun flow ic oc ->
-    set_tcp_nodelay flow;
-    server_fun (Conduit_lwt_unix.endp_of_flow flow) ic oc
-  end
+  let handler protocol flow =
+    let flow = Conduit_lwt_unix.abstract protocol flow in
+    Lwt.catch
+      (fun () ->
+         let ic, oc = Conduit_lwt_unix.io_of_flow flow in
+         set_tcp_nodelay flow ;
+         server_fun flow ic oc)
+      (fun exn -> on_exn exn ; Lwt.return ()) in
+  let stop = match stop with Some stop -> stop | None -> let never, _ = Lwt.wait () in never in
+  let cond, run = Conduit_lwt_unix.serve_with_handler ~key ~service ~handler cfg in
+  Lwt.pick [ (stop >>= fun () -> Lwt_condition.broadcast cond () ; Lwt.return ())
+           ; run ]
 
 let mk_frame_stream recv =
   let f () =
@@ -171,10 +192,10 @@ let mk_frame_stream recv =
 let establish_standard_server
     ?read_buf ?write_buf
     ?timeout ?stop
-    ?on_exn ?check_request ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
+    ?on_exn ?check_request ~key service cfg react =
   let f client =
     react (Connected_client.make_standard client)
   in
   establish_server ?read_buf ?write_buf ?timeout ?stop
-    ?on_exn ?check_request ~ctx ~mode f
+    ?on_exn ?check_request ~key service cfg f
 

@@ -4,11 +4,14 @@ open Websocket_lwt_unix
 
 let section = Lwt_log.Section.make "wscat"
 
+let resolvers =
+  Conduit_lwt.register_resolver ~key:Conduit_lwt_unix_tcp.endpoint
+    (Conduit_lwt_unix_tcp.resolv_conf ~port:80)
+    Conduit.empty
+
 let client uri =
   let open Frame in
-  Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  Conduit_lwt_unix.(endp_to_client ~ctx:default_ctx endp >>= fun client ->
-                    with_connection ~ctx:default_ctx client uri) >>= fun (recv, send) ->
+  with_connection ~resolvers uri >>= fun (recv, send) ->
   let react fr =
     match fr.opcode with
     | Opcode.Ping -> send @@ Frame.create ~opcode:Opcode.Pong ()
@@ -67,6 +70,14 @@ let react client client_id =
       Connected_client.send client Frame.(close 1002)
   in inner ()
 
+let option_map f = function
+  | Some x -> Some (f x)
+  | None -> None
+
+let option_fold ~none = function
+  | Some x -> x
+  | None -> none
+
 let server uri =
   let id = ref (-1) in
   let echo_fun client =
@@ -79,14 +90,20 @@ let server uri =
          Lwt_log.error_f ~section ~exn "Client %d error" id >>= fun () ->
          Lwt.fail exn)
   in
-  Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  let open Conduit_lwt_unix in
-  let endp_str = endp |> Conduit.sexp_of_endp |> Sexplib.Sexp.to_string_hum in
-  Lwt_log.info_f ~section "endp = %s" endp_str >>= fun () ->
-  endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  let server_str = server |> sexp_of_server |> Sexplib.Sexp.to_string_hum in
-  Lwt_log.info_f ~section "server = %s" server_str >>= fun () ->
-  establish_server ~ctx:default_ctx ~mode:server echo_fun
+  let sockaddr = match option_map Unix.gethostbyname (Uri.host uri), Uri.port uri with
+    | Some { Unix.h_addr_list; _ }, port when Array.length h_addr_list > 0 ->
+      Unix.ADDR_INET (h_addr_list.(0), option_fold ~none:80 port)
+    | Some _, port | None, port ->
+      Unix.ADDR_INET (Unix.inet_addr_loopback, option_fold ~none:80 port)
+    | exception _ ->
+      let port = Uri.port uri in
+      Unix.ADDR_INET (Unix.inet_addr_loopback, option_fold ~none:80 port) in
+  let key = Conduit_lwt_unix_tcp.configuration in
+  let service = Conduit_lwt_unix_tcp.service in
+  let cfg =
+    { Conduit_lwt_unix_tcp.sockaddr
+    ; capacity= 40 } in
+  establish_server ~key service cfg echo_fun
 
 let main is_server uri =
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())
