@@ -4,6 +4,19 @@ install: test -e .travis.opam.sh || wget https://raw.githubusercontent.com/ocaml
 script:
 - bash -ex .travis-opam.sh
 env:
+  global:
+    - PINS="conduit.dev:https://github.com/dinosaure/ocaml-conduit.git#3.0.0
+            conduit-tls.dev:https://github.com/dinosaure/ocaml-conduit.git#3.0.0
+            conduit-lwt.dev:https://github.com/dinosaure/ocaml-conduit.git#3.0.0
+            conduit-lwt-unix.dev:https://github.com/dinosaure/ocaml-conduit.git#3.0.0
+            conduit-async.dev:https://github.com/dinosaure/ocaml-conduit.git#3.0.0
+            cohttp.dev:https://github.com/dinosaure/ocaml-cohttp.git#conduit-3.0.0
+            cohttp-lwt.dev:https://github.com/dinosaure/ocaml-cohttp.git#conduit-3.0.0
+            cohttp-lwt-unix.dev:https://github.com/dinosaure/ocaml-cohttp.git#conduit-3.0.0
+            cohttp-async.dev:https://github.com/dinosaure/ocaml-cohttp.git#conduit-3.0.0
+            websocket.dev:.
+            websocket-lwt-unix.dev:.
+            websocket-async.dev:."
   matrix:
     - OCAML_VERSION="4.09" PACKAGE="websocket"
     - OCAML_VERSION="4.09" PACKAGE="websocket-lwt-unix"
