@@ -82,14 +82,14 @@ val upgrade_connection :
   Cohttp.Request.t ->
   Cohttp.Response.t * (Reader.t -> Writer.t -> unit Deferred.t)
 (** [upgrade_connection ?select_protocol ?ping_interval
-    app_to_ws ws_to_app f request] returns a Cohttp_async.Server.response_action.
+    app_to_ws ws_to_app f request] returns a {!Cohttp_async.Server.response_action}.
 
     Just wrap the return value of this function with [`Expert].
-    You can combine responses both of HTTP `Response handler and Websocket `Expert handler.
+    You can combine responses both of HTTP [`Response] handler and Websocket [`Expert] handler.
 
-    your handler will looks like this:
+    Your handler will look like this:
 
-    ```
+    {[
     let response =
       let app_to_ws, ws_write = Pipe.create () in
       let ws_read, ws_to_app = Pipe.create () in
@@ -128,5 +128,5 @@ val upgrade_connection :
       end
     in
     return (`Expert response)
-    ```
+    ]}
 *)
