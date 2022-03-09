@@ -7,8 +7,9 @@ let section = Lwt_log.Section.make "wscat"
 let client uri =
   let open Frame in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
-  Conduit_lwt_unix.(endp_to_client ~ctx:default_ctx endp >>= fun client ->
-                    with_connection ~ctx:default_ctx client uri) >>= fun (recv, send) ->
+  let ctx = Lazy.force Conduit_lwt_unix.default_ctx in
+  Conduit_lwt_unix.(endp_to_client ~ctx endp >>= fun client ->
+                    with_connection ~ctx client uri) >>= fun (recv, send) ->
   let react fr =
     match fr.opcode with
     | Opcode.Ping -> send @@ Frame.create ~opcode:Opcode.Pong ()
@@ -83,10 +84,11 @@ let server uri =
   let open Conduit_lwt_unix in
   let endp_str = endp |> Conduit.sexp_of_endp |> Sexplib.Sexp.to_string_hum in
   Lwt_log.info_f ~section "endp = %s" endp_str >>= fun () ->
-  endp_to_server ~ctx:default_ctx endp >>= fun server ->
+  let ctx = Lazy.force default_ctx in
+  endp_to_server ~ctx endp >>= fun server ->
   let server_str = server |> sexp_of_server |> Sexplib.Sexp.to_string_hum in
   Lwt_log.info_f ~section "server = %s" server_str >>= fun () ->
-  establish_server ~ctx:default_ctx ~mode:server echo_fun
+  establish_server ~ctx ~mode:server echo_fun
 
 let main is_server uri =
   if !is_server then (ignore @@ server uri; fst @@ Lwt.wait ())

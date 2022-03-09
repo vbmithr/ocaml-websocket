@@ -50,8 +50,9 @@ let handler id client =
 let main uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   let open Conduit_lwt_unix in
-  endp_to_server ~ctx:default_ctx endp >>= fun server ->
-  establish_server ~ctx:default_ctx ~mode:server (handler @@ ref (-1))
+  let ctx = Lazy.force default_ctx in
+  endp_to_server ~ctx endp >>= fun server ->
+  establish_server ~ctx ~mode:server (handler @@ ref (-1))
 
 let () =
   let uri = ref "http://localhost:9001" in

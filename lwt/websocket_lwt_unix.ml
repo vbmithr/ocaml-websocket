@@ -40,7 +40,7 @@ let fail_if eq f =
 let with_connection
     ?(extra_headers = Cohttp.Header.init ())
     ?(random_string=Websocket.Rng.init ())
-    ?(ctx=Conduit_lwt_unix.default_ctx)
+    ?(ctx=Lazy.force Conduit_lwt_unix.default_ctx)
     client uri =
   let connect () =
     let module C = Cohttp in
@@ -115,7 +115,7 @@ let establish_server
     ?timeout ?stop
     ?(on_exn=(fun exn -> !Lwt.async_exception_hook exn))
     ?(check_request=check_origin_with_host)
-    ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
+    ?(ctx=Lazy.force Conduit_lwt_unix.default_ctx) ~mode react =
   let module C = Cohttp in
   let server_fun flow ic oc =
     (Request.read ic >>= function
@@ -171,7 +171,7 @@ let mk_frame_stream recv =
 let establish_standard_server
     ?read_buf ?write_buf
     ?timeout ?stop
-    ?on_exn ?check_request ?(ctx=Conduit_lwt_unix.default_ctx) ~mode react =
+    ?on_exn ?check_request ?(ctx=Lazy.force Conduit_lwt_unix.default_ctx) ~mode react =
   let f client =
     react (Connected_client.make_standard client)
   in
