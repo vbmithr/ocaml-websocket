@@ -22,7 +22,7 @@ val upgrade_present : Cohttp.Header.t -> bool
 exception Protocol_error of string
 
 module Rng : sig
-  val init : ?state:Random.State.t -> unit -> (int -> string)
+  val init : ?state:Random.State.t -> unit -> int -> string
   (** [init ?state ()] is a function that returns a string of random
       bytes of length equal to its argument. *)
 end
@@ -43,12 +43,7 @@ module Frame : sig
     val pp : Format.formatter -> t -> unit
   end
 
-  type t = {
-    opcode: Opcode.t ;
-    extension: int ;
-    final: bool ;
-    content: string ;
-  }
+  type t = {opcode: Opcode.t; extension: int; final: bool; content: string}
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -58,14 +53,14 @@ module Frame : sig
     ?extension:int ->
     ?final:bool ->
     ?content:string ->
-    unit -> t
+    unit ->
+    t
 
   val close : int -> t
 end
 
 val check_origin :
-  ?origin_mandatory: bool -> hosts:string list ->
-  Cohttp.Request.t -> bool
+  ?origin_mandatory:bool -> hosts:string list -> Cohttp.Request.t -> bool
 (** [check_origin ~hosts req] will return [true] if the origin header
     exists and matches one of the provided hostnames.
     If origin header is not present, return [not origin_mandatory].
@@ -80,32 +75,39 @@ val check_origin_with_host : Cohttp.Request.t -> bool
 
 module type S = sig
   module IO : Cohttp.S.IO
-  type mode =
-    | Client of (int -> string)
-    | Server
+
+  type mode = Client of (int -> string) | Server
 
   val make_read_frame :
-    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> (unit -> Frame.t IO.t)
+    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
+
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 
-  module Request : Cohttp.S.Http_io
-    with type t = Cohttp.Request.t
-     and type 'a IO.t = 'a IO.t
-     and type IO.ic = IO.ic
-     and type IO.oc = IO.oc
+  module Request :
+    Cohttp.S.Http_io
+      with type t = Cohttp.Request.t
+       and type 'a IO.t = 'a IO.t
+       and type IO.ic = IO.ic
+       and type IO.oc = IO.oc
 
-  module Response : Cohttp.S.Http_io
-    with type t = Cohttp.Response.t
-     and type 'a IO.t = 'a IO.t
-     and type IO.ic = IO.ic
-     and type IO.oc = IO.oc
+  module Response :
+    Cohttp.S.Http_io
+      with type t = Cohttp.Response.t
+       and type 'a IO.t = 'a IO.t
+       and type IO.ic = IO.ic
+       and type IO.oc = IO.oc
 
   module Connected_client : sig
     type t
 
     val create :
-      ?read_buf:Buffer.t -> ?write_buf:Buffer.t ->
-      Cohttp.Request.t -> Conduit.endp -> IO.ic -> IO.oc -> t
+      ?read_buf:Buffer.t ->
+      ?write_buf:Buffer.t ->
+      Cohttp.Request.t ->
+      Conduit.endp ->
+      IO.ic ->
+      IO.oc ->
+      t
 
     val make_standard : t -> t
     val send : t -> Frame.t -> unit IO.t
@@ -116,8 +118,5 @@ module type S = sig
   end
 end
 
-module Make (IO : Cohttp.S.IO) : S
-  with type 'a IO.t = 'a IO.t
-   and type IO.ic = IO.ic
-   and type IO.oc = IO.oc
-
+module Make (IO : Cohttp.S.IO) :
+  S with type 'a IO.t = 'a IO.t and type IO.ic = IO.ic and type IO.oc = IO.oc

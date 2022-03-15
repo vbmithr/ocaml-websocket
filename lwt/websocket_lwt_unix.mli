@@ -21,10 +21,11 @@
     simple TCP communication, and this library implement framing and
     unframing of messages. *)
 
-include Websocket.S
-  with type 'a IO.t := 'a Cohttp_lwt_unix.IO.t
-   and type IO.ic := Cohttp_lwt_unix.IO.ic
-   and type IO.oc := Cohttp_lwt_unix.IO.oc
+include
+  Websocket.S
+    with type 'a IO.t := 'a Cohttp_lwt_unix.IO.t
+     and type IO.ic := Cohttp_lwt_unix.IO.ic
+     and type IO.oc := Cohttp_lwt_unix.IO.oc
 
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
@@ -52,7 +53,8 @@ val establish_server :
 
 (** {2 Convenience functions} *)
 
-val mk_frame_stream : (unit -> Websocket.Frame.t Lwt.t) -> Websocket.Frame.t Lwt_stream.t
+val mk_frame_stream :
+  (unit -> Websocket.Frame.t Lwt.t) -> Websocket.Frame.t Lwt_stream.t
 (** [mk_frame_stream f] is a stream build from [f], which role is to
     receive the frames that will form the stream. When a Close frame
     is received, the stream will be closed. *)
@@ -76,4 +78,3 @@ val establish_standard_server :
 
     All frames are then passed to the frame handling function.
 *)
-

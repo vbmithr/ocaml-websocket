@@ -26,7 +26,6 @@
 
 open Core
 open Async
-
 module Frame = Websocket.Frame
 
 val client :
@@ -34,8 +33,8 @@ val client :
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
   ?initialized:unit Ivar.t ->
-  app_to_ws:(Frame.t Pipe.Reader.t) ->
-  ws_to_app:(Frame.t Pipe.Writer.t) ->
+  app_to_ws:Frame.t Pipe.Reader.t ->
+  ws_to_app:Frame.t Pipe.Writer.t ->
   net_to_ws:Reader.t ->
   ws_to_net:Writer.t ->
   Uri.t ->
@@ -58,9 +57,10 @@ val server :
   ?select_protocol:(string -> string option) ->
   reader:Reader.t ->
   writer:Writer.t ->
-  app_to_ws:(Frame.t Pipe.Reader.t) ->
-  ws_to_app:(Frame.t Pipe.Writer.t) ->
-  unit -> unit Deferred.Or_error.t
+  app_to_ws:Frame.t Pipe.Reader.t ->
+  ws_to_app:Frame.t Pipe.Writer.t ->
+  unit ->
+  unit Deferred.Or_error.t
 (** [server ?request_cb reader writer app_to_ws
     ws_to_app ()] returns a thread that expects a websocket client
     connected to [reader]/[writer] and, after performing the
@@ -76,8 +76,8 @@ val server :
 val upgrade_connection :
   ?select_protocol:(string -> string option) ->
   ?ping_interval:Core.Time_ns.Span.t ->
-  app_to_ws:(Frame.t Pipe.Reader.t) ->
-  ws_to_app:(Frame.t Pipe.Writer.t) ->
+  app_to_ws:Frame.t Pipe.Reader.t ->
+  ws_to_app:Frame.t Pipe.Writer.t ->
   f:(unit -> unit Deferred.t) ->
   Cohttp.Request.t ->
   Cohttp.Response.t * (Reader.t -> Writer.t -> unit Deferred.t)
