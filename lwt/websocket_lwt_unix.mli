@@ -27,13 +27,20 @@ include
      and type IO.ic := Cohttp_lwt_unix.IO.ic
      and type IO.oc := Cohttp_lwt_unix.IO.oc
 
+type conn
+
+val read : conn -> Websocket.Frame.t Lwt.t
+val write : conn -> Websocket.Frame.t -> unit Lwt.t
+val close : ?reason:int * string option -> conn -> unit Lwt.t
+
 val with_connection :
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
   ?ctx:Conduit_lwt_unix.ctx ->
+  ?buf:Buffer.t ->
   Conduit_lwt_unix.client ->
   Uri.t ->
-  ((unit -> Websocket.Frame.t Lwt.t) * (Websocket.Frame.t -> unit Lwt.t)) Lwt.t
+  conn Lwt.t
 
 val establish_server :
   ?read_buf:Buffer.t ->

@@ -36,70 +36,109 @@ let set_tcp_nodelay flow =
 let fail_unless eq f = if not eq then f () else Lwt.return_unit
 let fail_if eq f = if eq then f () else Lwt.return_unit
 
+let drain_handshake req ic oc nonce =
+  Request.write (fun _writer -> Lwt.return ()) req oc
+  >>= fun () ->
+  Response.read ic
+  >>= (function
+        | `Ok r -> Lwt.return r
+        | `Eof -> Lwt.fail End_of_file
+        | `Invalid s -> Lwt.fail @@ Failure s )
+  >>= fun response ->
+  let open Cohttp in
+  let status = Response.status response in
+  let headers = Response.headers response in
+  fail_if
+    Code.(is_error @@ code_of_status status)
+    (fun () -> http_error Code.(string_of_status status))
+  >>= fun () ->
+  fail_unless
+    (Response.version response = `HTTP_1_1)
+    (fun () -> protocol_error "wrong http version")
+  >>= fun () ->
+  fail_unless
+    (status = `Switching_protocols)
+    (fun () -> protocol_error "wrong status")
+  >>= fun () ->
+  ( match Header.get headers "upgrade" with
+  | Some a when String.Ascii.lowercase a = "websocket" -> Lwt.return_unit
+  | _ -> protocol_error "wrong upgrade" )
+  >>= fun () ->
+  fail_unless (upgrade_present headers) (fun () ->
+      protocol_error "upgrade header not present" )
+  >>= fun () ->
+  match Header.get headers "sec-websocket-accept" with
+  | Some accept when accept = b64_encoded_sha1sum (nonce ^ websocket_uuid) ->
+      Lwt.return_unit
+  | _ -> protocol_error "wrong accept"
+
+let connect ctx client url nonce extra_headers =
+  let open Cohttp in
+  let headers =
+    Header.add_list extra_headers
+      [ ("Upgrade", "websocket"); ("Connection", "Upgrade");
+        ("Sec-WebSocket-Key", nonce); ("Sec-WebSocket-Version", "13") ] in
+  let req = Request.make ~headers url in
+  Conduit_lwt_unix.connect ~ctx client
+  >>= fun (flow, ic, oc) ->
+  set_tcp_nodelay flow ;
+  Lwt.catch
+    (fun () -> drain_handshake req ic oc nonce)
+    (fun exn -> Lwt_io.close ic >>= fun () -> Lwt.fail exn)
+  >>= fun () ->
+  Lwt_log.info_f ~section "Connected to %s" (Uri.to_string url)
+  >>= fun () -> Lwt.return (ic, oc)
+
+type conn =
+  { read_frame: unit -> Frame.t Lwt.t;
+    write_frame:
+      [`Continue of Websocket.Frame.t | `Stop of (int * string option) option] ->
+      unit Lwt.t }
+
+let read {read_frame; _} = read_frame ()
+let write {write_frame; _} frame = write_frame (`Continue frame)
+
+let close ?reason {write_frame; _} =
+  match reason with
+  | None -> write_frame (`Stop None)
+  | Some (code, msg) -> write_frame (`Stop (Some (code, msg)))
+
 let with_connection ?(extra_headers = Cohttp.Header.init ())
     ?(random_string = Websocket.Rng.init ())
-    ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) client uri =
-  let connect () =
-    let module C = Cohttp in
-    let nonce = Base64.encode_exn (random_string 16) in
-    let headers =
-      C.Header.add_list extra_headers
-        [ ("Upgrade", "websocket"); ("Connection", "Upgrade");
-          ("Sec-WebSocket-Key", nonce); ("Sec-WebSocket-Version", "13") ] in
-    let req = C.Request.make ~headers uri in
-    Conduit_lwt_unix.connect ~ctx client
-    >>= fun (flow, ic, oc) ->
-    set_tcp_nodelay flow ;
-    let drain_handshake () =
-      Request.write (fun _writer -> Lwt.return ()) req oc
-      >>= fun () ->
-      Response.read ic
-      >>= (function
-            | `Ok r -> Lwt.return r
-            | `Eof -> Lwt.fail End_of_file
-            | `Invalid s -> Lwt.fail @@ Failure s )
-      >>= fun response ->
-      let status = C.Response.status response in
-      let headers = C.Response.headers response in
-      fail_if
-        C.Code.(is_error @@ code_of_status status)
-        (fun () -> http_error C.Code.(string_of_status status))
-      >>= fun () ->
-      fail_unless
-        (C.Response.version response = `HTTP_1_1)
-        (fun () -> protocol_error "wrong http version")
-      >>= fun () ->
-      fail_unless
-        (status = `Switching_protocols)
-        (fun () -> protocol_error "wrong status")
-      >>= fun () ->
-      ( match C.Header.get headers "upgrade" with
-      | Some a when String.Ascii.lowercase a = "websocket" -> Lwt.return_unit
-      | _ -> protocol_error "wrong upgrade" )
-      >>= fun () ->
-      fail_unless (upgrade_present headers) (fun () ->
-          protocol_error "upgrade header not present" )
-      >>= fun () ->
-      ( match C.Header.get headers "sec-websocket-accept" with
-      | Some accept when accept = b64_encoded_sha1sum (nonce ^ websocket_uuid)
-        ->
-          Lwt.return_unit
-      | _ -> protocol_error "wrong accept" )
-      >>= fun () ->
-      Lwt_log.info_f ~section "Connected to %s" (Uri.to_string uri) in
-    Lwt.catch drain_handshake (fun exn ->
-        Lwt_io.close ic >>= fun () -> Lwt.fail exn )
-    >>= fun () -> Lwt.return (ic, oc) in
-  connect ()
+    ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ?buf client url =
+  let nonce = Base64.encode_exn (random_string 16) in
+  connect ctx client url nonce extra_headers
   >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ~mode:(Client random_string) ic oc in
-  let read_frame () = Lwt.catch read_frame (fun exn -> Lwt.fail exn) in
+  let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
+  let read_frame () =
+    Lwt.catch read_frame (fun exn ->
+        Lwt.async (fun () -> Lwt_io.close ic) ;
+        Lwt.fail exn ) in
   let buf = Buffer.create 128 in
   let write_frame frame =
     Buffer.clear buf ;
     Lwt.wrap2 (write_frame_to_buf ~mode:(Client random_string)) buf frame
-    >>= fun () -> Lwt_io.write oc @@ Buffer.contents buf in
-  (read_frame, write_frame)
+    >>= fun () ->
+    Lwt.catch
+      (fun () -> Lwt_io.write oc (Buffer.contents buf))
+      (fun exn ->
+        Lwt.async (fun () -> Lwt_io.close oc) ;
+        Lwt.fail exn ) in
+  let write_frame = function
+    | `Continue frame -> write_frame frame
+    | `Stop None ->
+        let frame = Frame.create ~opcode:Close ~final:true () in
+        write_frame frame
+    | `Stop (Some (code, msg)) ->
+        let msg = Option.value ~default:"" msg in
+        let len = String.length msg in
+        let content = Bytes.create (len + 2) in
+        Bytes.set_int16_be content 0 code ;
+        Bytes.blit_string msg 0 content 2 len ;
+        let content = Bytes.unsafe_to_string content in
+        let frame = Frame.create ~opcode:Close ~final:true ~content () in
+        write_frame frame >>= fun () -> Lwt_io.close oc in
+  {read_frame; write_frame}
 
 let write_failed_response oc =
   let body = "403 Forbidden" in
