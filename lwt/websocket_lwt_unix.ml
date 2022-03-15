@@ -93,7 +93,8 @@ type conn =
   { read_frame: unit -> Frame.t Lwt.t;
     write_frame:
       [`Continue of Websocket.Frame.t | `Stop of (int * string option) option] ->
-      unit Lwt.t }
+      unit Lwt.t;
+    oc: Lwt_io.output_channel }
 
 let read {read_frame; _} = read_frame ()
 let write {write_frame; _} frame = write_frame (`Continue frame)
@@ -102,6 +103,8 @@ let close ?reason {write_frame; _} =
   match reason with
   | None -> write_frame (`Stop None)
   | Some (code, msg) -> write_frame (`Stop (Some (code, msg)))
+
+let close_transport {oc; _} = Lwt_io.close oc
 
 let with_connection ?(extra_headers = Cohttp.Header.init ())
     ?(random_string = Websocket.Rng.init ())
@@ -124,11 +127,25 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
       (fun exn ->
         Lwt.async (fun () -> Lwt_io.close oc) ;
         Lwt.fail exn ) in
+  let close_and_wait_for_remote_ack close =
+    write_frame close
+    >>= fun () ->
+    Lwt.pick
+      [ Lwt_unix.timeout 2.;
+        ( read_frame ()
+        >>= function
+        | {opcode= Close; _} -> Lwt.return_unit
+        | x ->
+            Lwt_log.warning_f ~section
+              "Client initiated close: expected a close frame from server, got \
+               %s"
+              (Websocket.Frame.show x) ) ]
+    >>= fun () -> Lwt_io.close oc in
   let write_frame = function
     | `Continue frame -> write_frame frame
     | `Stop None ->
-        let frame = Frame.create ~opcode:Close ~final:true () in
-        write_frame frame
+        Frame.create ~opcode:Close ~final:true ()
+        |> close_and_wait_for_remote_ack
     | `Stop (Some (code, msg)) ->
         let msg = Option.value ~default:"" msg in
         let len = String.length msg in
@@ -136,9 +153,9 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
         Bytes.set_int16_be content 0 code ;
         Bytes.blit_string msg 0 content 2 len ;
         let content = Bytes.unsafe_to_string content in
-        let frame = Frame.create ~opcode:Close ~final:true ~content () in
-        write_frame frame >>= fun () -> Lwt_io.close oc in
-  {read_frame; write_frame}
+        Frame.create ~opcode:Close ~final:true ~content ()
+        |> close_and_wait_for_remote_ack in
+  {read_frame; write_frame; oc}
 
 let write_failed_response oc =
   let body = "403 Forbidden" in
