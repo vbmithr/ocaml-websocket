@@ -31,7 +31,7 @@
   (ocaml (>= 4.06.0))
   (base64 (>= 3.3.0))
   (conduit (>= 4.0.0))
-  (cohttp (>= 2.5.1))
+  (cohttp (>= 5.0.0))
   (ocplib-endian (>= 1.0))
   (astring (>= 0.8.3))))
 
@@ -58,7 +58,7 @@
   (websocket (= :version))
   (core (>= v0.13.0))
   (async (>= v0.13.0))
-  (cohttp-async (>= 2.5.1))
+  (cohttp-async (>= 5.0.0))
   (logs-async (>= 1.1))
   (logs-async-reporter (>= 1.0))))
 
@@ -84,4 +84,4 @@
   (ocaml (>= 4.06.0))
   (websocket (= :version))
   (lwt_log (>= 1.1.1))
-  (cohttp-lwt-unix (>= 2.5.1))))
+  (cohttp-lwt-unix (>= 5.0.0))))
