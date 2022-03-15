@@ -130,17 +130,18 @@ let with_connection ?(extra_headers = Cohttp.Header.init ())
   let close_and_wait_for_remote_ack close =
     write_frame close
     >>= fun () ->
-    Lwt.pick
-      [ Lwt_unix.timeout 2.;
-        ( read_frame ()
-        >>= function
-        | {opcode= Close; _} -> Lwt.return_unit
-        | x ->
-            Lwt_log.warning_f ~section
-              "Client initiated close: expected a close frame from server, got \
-               %s"
-              (Websocket.Frame.show x) ) ]
-    >>= fun () -> Lwt_io.close oc in
+    let rec wait_for_ack () =
+      read_frame ()
+      >>= function
+      | {opcode= Close; _} -> Lwt.return_unit
+      | x ->
+          Lwt_log.warning_f ~section
+            "Client initiated close: expected a close frame from server, got %s"
+            (Websocket.Frame.show x)
+          >>= wait_for_ack in
+    Lwt.finalize
+      (fun () -> Lwt.pick [Lwt_unix.timeout 2.; wait_for_ack ()])
+      (fun () -> Lwt_io.close oc) in
   let write_frame = function
     | `Continue frame -> write_frame frame
     | `Stop None ->
