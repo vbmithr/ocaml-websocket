@@ -8,8 +8,9 @@ let client uri =
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system
   >>= fun endp ->
   let ctx = Lazy.force Conduit_lwt_unix.default_ctx in
-  Conduit_lwt_unix.(
-    endp_to_client ~ctx endp >>= fun client -> with_connection ~ctx client uri)
+  Conduit_lwt_unix.endp_to_client ~ctx endp
+  >>= fun client ->
+  connect ~ctx client uri
   >>= fun conn ->
   let react fr =
     match fr.Frame.opcode with
