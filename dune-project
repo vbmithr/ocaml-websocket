@@ -30,7 +30,7 @@
  (depends
   (ocaml (>= 4.06.0))
   (base64 (>= 3.3.0))
-  (conduit (>= 4.0.0))
+  (conduit (>= 5.1.0))
   (cohttp (>= 5.0.0))
   (ocplib-endian (>= 1.0))
   (astring (>= 0.8.3))))
