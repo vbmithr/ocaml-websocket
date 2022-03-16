@@ -118,6 +118,8 @@ let upgrade_present hs =
 
 exception Protocol_error of string
 
+let proto_error x = Format.kasprintf (fun x -> raise (Protocol_error x)) x
+
 let check_origin ?(origin_mandatory = false) ~hosts =
   let pred origin_host =
     List.exists (fun h -> String.Ascii.lowercase h = origin_host) hosts in
@@ -200,13 +202,13 @@ module Make (IO : Cohttp.S.IO) = struct
 
   let rec read_exactly ic remaining buf =
     read ic remaining
-    >>= fun s ->
-    if s = "" then return None
-    else
-      let recv_len = String.length s in
-      Buffer.add_string buf s ;
-      if remaining - recv_len <= 0 then return @@ Some (Buffer.contents buf)
-      else read_exactly ic (remaining - recv_len) buf
+    >>= function
+    | "" -> return None
+    | s ->
+        let recv_len = String.length s in
+        Buffer.add_string buf s ;
+        if remaining - recv_len <= 0 then return @@ Some (Buffer.contents buf)
+        else read_exactly ic (remaining - recv_len) buf
 
   let read_uint16 ic buf =
     read_exactly ic 2 buf
@@ -283,36 +285,34 @@ module Make (IO : Cohttp.S.IO) = struct
         >>= function Some i -> return i | None -> return @@ -1 )
     | _ -> return @@ -1 )
     >>= fun payload_len ->
-    if payload_len = -1 then
-      raise (Protocol_error ("payload len = " ^ string_of_int length))
+    if payload_len = -1 then proto_error "payload len = %d" length
     else if extension <> 0 then
       close_with_code mode buf oc 1002
-      >>= fun () -> raise (Protocol_error "unsupported extension")
+      >>= fun () -> proto_error "unsupported extension"
     else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
       close_with_code mode buf oc 1002
-      >>= fun () -> raise (Protocol_error "control frame too big")
+      >>= fun () -> proto_error "control frame too big"
     else
       ( if frame_masked then (
         Buffer.clear buf ;
         read_exactly ic 4 buf
         >>= function
-        | None -> raise (Protocol_error "could not read mask")
-        | Some mask -> return mask )
+        | None -> proto_error "could not read mask" | Some mask -> return mask )
       else return String.empty )
       >>= fun mask ->
       if payload_len = 0 then
         return @@ Frame.create ~opcode ~extension ~final ()
-      else
-        ( Buffer.clear buf ;
-          read_exactly ic payload_len buf )
+      else (
+        Buffer.clear buf ;
+        read_exactly ic payload_len buf
         >>= fun payload ->
         match payload with
-        | None -> raise (Protocol_error "could not read payload")
+        | None -> proto_error "could not read payload (len=%d)" payload_len
         | Some payload ->
             let payload = Bytes.unsafe_of_string payload in
             if frame_masked then xor mask payload ;
             let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-            return frame
+            return frame )
 
   let make_read_frame ?(buf = Buffer.create 128) ~mode ic oc () =
     Buffer.clear buf ;

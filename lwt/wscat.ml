@@ -38,29 +38,28 @@ let client uri =
     | Some content -> write conn (Frame.create ~content ()) >>= pushf in
   pushf () <?> react_forever ()
 
-let react client client_id =
+let rec react client client_id =
   let open Websocket in
-  let rec inner () =
-    Connected_client.recv client
-    >>= fun fr ->
-    Lwt_log.debug_f ~section "Client %d: %s" client_id Frame.(show fr)
-    >>= fun () ->
-    match fr.opcode with
-    | Frame.Opcode.Ping ->
+  Connected_client.recv client
+  >>= fun fr ->
+  Lwt_log.debug_f ~section "Client %d: %S" client_id Frame.(show fr)
+  >>= fun () ->
+  match fr.opcode with
+  | Frame.Opcode.Ping ->
+      Connected_client.send client
+        Frame.(create ~opcode:Opcode.Pong ~content:fr.content ())
+      >>= fun () -> react client client_id
+  | Close ->
+      (* Immediately echo and pass this last message to the user *)
+      if String.length fr.content >= 2 then
+        let content = String.sub fr.content 0 2 in
         Connected_client.send client
-          Frame.(create ~opcode:Opcode.Pong ~content:fr.content ())
-        >>= inner
-    | Close ->
-        (* Immediately echo and pass this last message to the user *)
-        if String.length fr.content >= 2 then
-          let content = String.sub fr.content 0 2 in
-          Connected_client.send client
-            Frame.(create ~opcode:Opcode.Close ~content ())
-        else Connected_client.send client @@ Frame.close 1000
-    | Pong -> inner ()
-    | Text | Binary -> Connected_client.send client fr >>= inner
-    | _ -> Connected_client.send client Frame.(close 1002) in
-  inner ()
+          Frame.(create ~opcode:Opcode.Close ~content ())
+      else Connected_client.send client @@ Frame.close 1000
+  | Pong -> react client client_id
+  | Text | Binary ->
+      Connected_client.send client fr >>= fun () -> react client client_id
+  | _ -> Connected_client.send client Frame.(close 1002)
 
 let server uri =
   let id = ref (-1) in
