@@ -106,7 +106,7 @@ let close ?reason {write_frame; _} =
 
 let close_transport {oc; _} = Lwt_io.close oc
 
-let with_connection ?(extra_headers = Cohttp.Header.init ())
+let connect ?(extra_headers = Cohttp.Header.init ())
     ?(random_string = Websocket.Rng.init ())
     ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ?buf client url =
   let nonce = Base64.encode_exn (random_string 16) in

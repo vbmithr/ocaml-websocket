@@ -42,7 +42,7 @@ val close_transport : conn -> unit Lwt.t
    to manage the connection state (ie. send close frames, etc.)
    yourself. *)
 
-val with_connection :
+val connect :
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
   ?ctx:Conduit_lwt_unix.ctx ->
