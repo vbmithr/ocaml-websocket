@@ -1,3 +1,11 @@
+2.15 (2021-03-16) Nancy
+-----------------------
+
+- Lwt (interface): abstract conn type (@paurkedal)
+- Lwt (name change): with_connection -> connect
+- Cohttp: adapt to new version (@kit-ty-kate)
+- Conduit: adapt to new version (@MisterDA)
+
 2.14 (2020-03-5) Paris
 ----------------------
 
