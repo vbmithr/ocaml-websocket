@@ -32,11 +32,6 @@ type conn
 val read : conn -> Websocket.Frame.t Lwt.t
 val write : conn -> Websocket.Frame.t -> unit Lwt.t
 
-val close : ?reason:int * string option -> conn -> unit Lwt.t
-(** [close ?reason conn] performs a client-initiated session close. It
-   will send a close frame and then wait up to 2 seconds to receive
-   the server ack, before closing the transport. *)
-
 val close_transport : conn -> unit Lwt.t
 (** [close_transport conn] closes the underlying transport. You have
    to manage the connection state (ie. send close frames, etc.)

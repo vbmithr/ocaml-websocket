@@ -91,19 +91,11 @@ let connect ctx client url nonce extra_headers =
 
 type conn =
   { read_frame: unit -> Frame.t Lwt.t;
-    write_frame:
-      [`Continue of Websocket.Frame.t | `Stop of (int * string option) option] ->
-      unit Lwt.t;
+    write_frame: Websocket.Frame.t -> unit Lwt.t;
     oc: Lwt_io.output_channel }
 
 let read {read_frame; _} = read_frame ()
-let write {write_frame; _} frame = write_frame (`Continue frame)
-
-let close ?reason {write_frame; _} =
-  match reason with
-  | None -> write_frame (`Stop None)
-  | Some (code, msg) -> write_frame (`Stop (Some (code, msg)))
-
+let write {write_frame; _} frame = write_frame frame
 let close_transport {oc; _} = Lwt_io.close oc
 
 let connect ?(extra_headers = Cohttp.Header.init ())
@@ -127,35 +119,6 @@ let connect ?(extra_headers = Cohttp.Header.init ())
       (fun exn ->
         Lwt.async (fun () -> Lwt_io.close oc) ;
         Lwt.fail exn ) in
-  let close_and_wait_for_remote_ack close =
-    write_frame close
-    >>= fun () ->
-    let rec wait_for_ack () =
-      read_frame ()
-      >>= function
-      | {opcode= Close; _} -> Lwt.return_unit
-      | x ->
-          Lwt_log.warning_f ~section
-            "Client initiated close: expected a close frame from server, got %s"
-            (Websocket.Frame.show x)
-          >>= wait_for_ack in
-    Lwt.finalize
-      (fun () -> Lwt.pick [Lwt_unix.timeout 2.; wait_for_ack ()])
-      (fun () -> Lwt_io.close oc) in
-  let write_frame = function
-    | `Continue frame -> write_frame frame
-    | `Stop None ->
-        Frame.create ~opcode:Close ~final:true ()
-        |> close_and_wait_for_remote_ack
-    | `Stop (Some (code, msg)) ->
-        let msg = Option.value ~default:"" msg in
-        let len = String.length msg in
-        let content = Bytes.create (len + 2) in
-        Bytes.set_int16_be content 0 code ;
-        Bytes.blit_string msg 0 content 2 len ;
-        let content = Bytes.unsafe_to_string content in
-        Frame.create ~opcode:Close ~final:true ~content ()
-        |> close_and_wait_for_remote_ack in
   {read_frame; write_frame; oc}
 
 let write_failed_response oc =
