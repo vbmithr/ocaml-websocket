@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Websocket_async (websocket-async.Websocket_async)</title><link rel="stylesheet" href="../../odoc.css"/><meta charset="utf-8"/><meta name="generator" content="odoc 2.1.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../index.html">websocket-async</a> &#x00BB; Websocket_async</nav><header class="odoc-preamble"><h1>Module <code><span>Websocket_async</span></code></h1><p>Module <code>Websocket_async</code>: websocket library for Async</p></header><div class="odoc-content"><p>This module implements a websocket client and server library in the spirit of the otherwise similar TCP functions of the <code>Lwt_io</code> module. The websocket protocol add message framing in addition of simple TCP communication, and this library implement framing and unframing of messages.</p><div class="odoc-spec"><div class="spec module" id="module-Frame" class="anchored"><a href="#module-Frame" class="anchor"></a><code><span><span class="keyword">module</span> Frame</span><span> = <a href="../../websocket/Websocket/Frame/index.html">Websocket.Frame</a></span></code></div></div><div class="odoc-spec"><div class="spec value" id="val-client" class="anchored"><a href="#val-client" class="anchor"></a><code><span><span class="keyword">val</span> client : 
+  <span>?name:string <span class="arrow">&#45;&gt;</span></span>
+  <span>?extra_headers:<span class="xref-unresolved">Cohttp</span>.Header.t <span class="arrow">&#45;&gt;</span></span>
+  <span>?random_string:<span>( <span>int <span class="arrow">&#45;&gt;</span></span> string )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>?initialized:<span>unit <span class="xref-unresolved">Async</span>.Ivar.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>app_to_ws:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Reader.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>ws_to_app:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Writer.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>net_to_ws:<span class="xref-unresolved">Async</span>.Reader.t <span class="arrow">&#45;&gt;</span></span>
+  <span>ws_to_net:<span class="xref-unresolved">Async</span>.Writer.t <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Uri</span>.t <span class="arrow">&#45;&gt;</span></span>
+  <span>unit <span class="xref-unresolved">Async</span>.Deferred.Or_error.t</span></span></code></div></div><div class="odoc-spec"><div class="spec value" id="val-client_ez" class="anchored"><a href="#val-client_ez" class="anchor"></a><code><span><span class="keyword">val</span> client_ez : 
+  <span>?opcode:<a href="../../websocket/Websocket/Frame/Opcode/index.html#type-t">Frame.Opcode.t</a> <span class="arrow">&#45;&gt;</span></span>
+  <span>?name:string <span class="arrow">&#45;&gt;</span></span>
+  <span>?extra_headers:<span class="xref-unresolved">Cohttp</span>.Header.t <span class="arrow">&#45;&gt;</span></span>
+  <span>?heartbeat:<span class="xref-unresolved">Core</span>.Time_ns.Span.t <span class="arrow">&#45;&gt;</span></span>
+  <span>?random_string:<span>( <span>int <span class="arrow">&#45;&gt;</span></span> string )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Uri</span>.t <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Async</span>.Reader.t <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Async</span>.Writer.t <span class="arrow">&#45;&gt;</span></span>
+  <span>string <span class="xref-unresolved">Async</span>.Pipe.Reader.t</span> * <span>string <span class="xref-unresolved">Async</span>.Pipe.Writer.t</span></span></code></div></div><div class="odoc-spec"><div class="spec value" id="val-server" class="anchored"><a href="#val-server" class="anchor"></a><code><span><span class="keyword">val</span> server : 
+  <span>?name:string <span class="arrow">&#45;&gt;</span></span>
+  <span>?check_request:<span>( <span><span class="xref-unresolved">Cohttp</span>.Request.t <span class="arrow">&#45;&gt;</span></span> <span>bool <span class="xref-unresolved">Async</span>.Deferred.t</span> )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>?select_protocol:<span>( <span>string <span class="arrow">&#45;&gt;</span></span> <span>string option</span> )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>reader:<span class="xref-unresolved">Async</span>.Reader.t <span class="arrow">&#45;&gt;</span></span>
+  <span>writer:<span class="xref-unresolved">Async</span>.Writer.t <span class="arrow">&#45;&gt;</span></span>
+  <span>app_to_ws:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Reader.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>ws_to_app:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Writer.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>unit <span class="arrow">&#45;&gt;</span></span>
+  <span>unit <span class="xref-unresolved">Async</span>.Deferred.Or_error.t</span></span></code></div><div class="spec-doc"><p><code>server ?request_cb reader writer app_to_ws
+    ws_to_app ()</code> returns a thread that expects a websocket client connected to <code>reader</code>/<code>writer</code> and, after performing the handshake, will resp. read outgoing frames from <code>app_to_ws</code> and write incoming frames to <code>ws_to_app</code>. The thread is determined if any of <code>reader</code>, <code>writer</code>, <code>app_to_ws</code>, <code>ws_to_app</code> is closed. If case of an error, <code>app_to_ws</code> and <code>ws_to_app</code> will be closed. Upon reception of the client HTTP request, <code>request_cb</code> will be called with the request as its argument. If <code>request_cb</code> returns true, the connection will proceed, otherwise, the result is immediately determined to <code>Error Exit</code>.</p></div></div><div class="odoc-spec"><div class="spec value" id="val-upgrade_connection" class="anchored"><a href="#val-upgrade_connection" class="anchor"></a><code><span><span class="keyword">val</span> upgrade_connection : 
+  <span>?select_protocol:<span>( <span>string <span class="arrow">&#45;&gt;</span></span> <span>string option</span> )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>?ping_interval:<span class="xref-unresolved">Core</span>.Time_ns.Span.t <span class="arrow">&#45;&gt;</span></span>
+  <span>app_to_ws:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Reader.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>ws_to_app:<span><a href="../../websocket/Websocket/Frame/index.html#type-t">Frame.t</a> <span class="xref-unresolved">Async</span>.Pipe.Writer.t</span> <span class="arrow">&#45;&gt;</span></span>
+  <span>f:<span>( <span>unit <span class="arrow">&#45;&gt;</span></span> <span>unit <span class="xref-unresolved">Async</span>.Deferred.t</span> )</span> <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Cohttp</span>.Request.t <span class="arrow">&#45;&gt;</span></span>
+  <span class="xref-unresolved">Cohttp</span>.Response.t
+  * <span>( <span><span class="xref-unresolved">Async</span>.Reader.t <span class="arrow">&#45;&gt;</span></span>
+  <span><span class="xref-unresolved">Async</span>.Writer.t <span class="arrow">&#45;&gt;</span></span>
+  <span>unit <span class="xref-unresolved">Async</span>.Deferred.t</span> )</span></span></code></div><div class="spec-doc"><p><code>upgrade_connection ?select_protocol ?ping_interval
+    app_to_ws ws_to_app f request</code> returns a <code>Cohttp_async</code>.Server.response_action.</p><p>Just wrap the return value of this function with <code>`Expert</code>. You can combine responses both of HTTP <code>`Response</code> handler and Websocket <code>`Expert</code> handler.</p><p>Your handler will look like this:</p><pre><code>let response =
+  let app_to_ws, ws_write = Pipe.create () in
+  let ws_read, ws_to_app = Pipe.create () in
+  Websocket_async.upgrade_connection request ~app_to_ws ~ws_to_app ~f:begin fun () -&gt;
+    let rec loop () =
+      let open Websocket in
+      match%bind Pipe.read ws_read with
+      | `Eof -&gt; return ()
+      | `Ok ({ Frame.opcode; content; _ } as frame) -&gt;
+        let open Frame in
+        let frame', closed =
+          match opcode with
+          | Opcode.Ping -&gt; Some (create ~opcode:Opcode.Pong ~content ()), false
+          | Opcode.Close -&gt;
+            (* Immediately echo and pass this last message to the user *)
+            if String.length content &gt;= 2 then
+              Some (create ~opcode:Opcode.Close
+                      ~content:(String.sub content ~pos:0 ~len:2) ()), true
+            else
+              Some (close 100), true
+          | Opcode.Pong -&gt; None, false
+          | Opcode.Text
+          | Opcode.Binary -&gt; Some frame, false
+          | _ -&gt; Some (close 1002), false
+        in
+        begin
+          match frame' with
+          | None       -&gt; Deferred.unit
+          | Some frame -&gt; Pipe.write ws_write frame
+        end &gt;&gt;= fun () -&gt;
+        if closed
+        then Deferred.unit
+        else loop ()
+    in
+    loop ()
+  end
+in
+return (`Expert response)</code></pre></div></div></div></body></html>
