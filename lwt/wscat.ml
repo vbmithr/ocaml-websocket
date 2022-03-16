@@ -12,20 +12,18 @@ let client uri =
   >>= fun client ->
   connect ~ctx client uri
   >>= fun conn ->
-  let react fr =
-    match fr.Frame.opcode with
-    | Frame.Opcode.Ping -> write conn (Frame.create ~opcode:Pong ())
-    | Close ->
+  let react = function
+    | {Frame.opcode= Ping; _} -> write conn (Frame.create ~opcode:Pong ())
+    | {opcode= Close; content; _} ->
         (* Immediately echo and pass this last message to the user *)
-        ( if String.length fr.content >= 2 then
+        ( if String.length content >= 2 then
           write conn
-            (Frame.create ~opcode:Close
-               ~content:(String.sub fr.content 0 2)
-               () )
+            (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
         else write conn (Frame.close 1000) )
         >>= fun () -> Lwt.fail Exit
-    | Pong -> Lwt.return_unit
-    | Text | Binary -> Lwt_io.printf "> %s\n> %!" fr.content
+    | {opcode= Pong; _} -> Lwt.return_unit
+    | {opcode= Text; content; _} | {opcode= Binary; content; _} ->
+        Lwt_io.printf "> %s\n> %!" content
     | _ ->
         Websocket_lwt_unix.close ~reason:(1002, None) conn
         >>= fun () -> Lwt.fail Exit in
@@ -40,29 +38,28 @@ let client uri =
     | Some content -> write conn (Frame.create ~content ()) >>= pushf in
   pushf () <?> react_forever ()
 
-let react client client_id =
+let rec react client client_id =
   let open Websocket in
-  let rec inner () =
-    Connected_client.recv client
-    >>= fun fr ->
-    Lwt_log.debug_f ~section "Client %d: %s" client_id Frame.(show fr)
-    >>= fun () ->
-    match fr.opcode with
-    | Frame.Opcode.Ping ->
+  Connected_client.recv client
+  >>= fun fr ->
+  Lwt_log.debug_f ~section "Client %d: %S" client_id Frame.(show fr)
+  >>= fun () ->
+  match fr.opcode with
+  | Frame.Opcode.Ping ->
+      Connected_client.send client
+        Frame.(create ~opcode:Opcode.Pong ~content:fr.content ())
+      >>= fun () -> react client client_id
+  | Close ->
+      (* Immediately echo and pass this last message to the user *)
+      if String.length fr.content >= 2 then
+        let content = String.sub fr.content 0 2 in
         Connected_client.send client
-          Frame.(create ~opcode:Opcode.Pong ~content:fr.content ())
-        >>= inner
-    | Close ->
-        (* Immediately echo and pass this last message to the user *)
-        if String.length fr.content >= 2 then
-          let content = String.sub fr.content 0 2 in
-          Connected_client.send client
-            Frame.(create ~opcode:Opcode.Close ~content ())
-        else Connected_client.send client @@ Frame.close 1000
-    | Pong -> inner ()
-    | Text | Binary -> Connected_client.send client fr >>= inner
-    | _ -> Connected_client.send client Frame.(close 1002) in
-  inner ()
+          Frame.(create ~opcode:Opcode.Close ~content ())
+      else Connected_client.send client @@ Frame.close 1000
+  | Pong -> react client client_id
+  | Text | Binary ->
+      Connected_client.send client fr >>= fun () -> react client client_id
+  | _ -> Connected_client.send client Frame.(close 1002)
 
 let server uri =
   let id = ref (-1) in

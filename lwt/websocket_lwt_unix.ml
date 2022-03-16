@@ -167,59 +167,66 @@ let write_failed_response oc =
   let open Response in
   write ~flush:true (fun writer -> write_body writer body) response oc
 
+let server_fun ?read_buf ?write_buf check_request flow ic oc react =
+  let read = function
+    | `Ok r -> Lwt.return r
+    | `Eof ->
+        (* Remote endpoint closed connection. No further action necessary here. *)
+        Lwt_log.info ~section "Remote endpoint closed connection"
+        >>= fun () -> Lwt.fail End_of_file
+    | `Invalid reason ->
+        Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason
+        >>= fun () -> Lwt.fail @@ HTTP_Error reason in
+  Request.read ic >>= read
+  >>= fun request ->
+  let meth = Cohttp.Request.meth request in
+  let version = Cohttp.Request.version request in
+  let headers = Cohttp.Request.headers request in
+  let key = Cohttp.Header.get headers "sec-websocket-key" in
+  ( match
+      ( version,
+        meth,
+        Cohttp.Header.get headers "upgrade",
+        key,
+        upgrade_present headers,
+        check_request request )
+    with
+  | `HTTP_1_1, `GET, Some up, Some key, true, true
+    when String.Ascii.lowercase up = "websocket" ->
+      Lwt.return key
+  | _ ->
+      write_failed_response oc
+      >>= fun () -> Lwt.fail (Protocol_error "Bad headers") )
+  >>= fun key ->
+  let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
+  let response_headers =
+    Cohttp.Header.of_list
+      [ ("Upgrade", "websocket"); ("Connection", "Upgrade");
+        ("Sec-WebSocket-Accept", hash) ] in
+  let response =
+    Cohttp.Response.make ~status:`Switching_protocols
+      ~encoding:Cohttp.Transfer.Unknown ~headers:response_headers () in
+  Response.write (fun _writer -> Lwt.return_unit) response oc
+  >>= fun () ->
+  let client = Connected_client.create ?read_buf ?write_buf request flow ic oc in
+  react client
+
 let establish_server ?read_buf ?write_buf ?timeout ?stop
     ?(on_exn = fun exn -> !Lwt.async_exception_hook exn)
     ?(check_request = check_origin_with_host)
     ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ~mode react =
   let module C = Cohttp in
-  let server_fun flow ic oc =
-    Request.read ic
-    >>= (function
-          | `Ok r -> Lwt.return r
-          | `Eof ->
-              (* Remote endpoint closed connection. No further action necessary here. *)
-              Lwt_log.info ~section "Remote endpoint closed connection"
-              >>= fun () -> Lwt.fail End_of_file
-          | `Invalid reason ->
-              Lwt_log.info_f ~section "Invalid input from remote endpoint: %s"
-                reason
-              >>= fun () -> Lwt.fail @@ HTTP_Error reason )
-    >>= fun request ->
-    let meth = C.Request.meth request in
-    let version = C.Request.version request in
-    let headers = C.Request.headers request in
-    let key = C.Header.get headers "sec-websocket-key" in
-    ( match
-        ( version,
-          meth,
-          C.Header.get headers "upgrade",
-          key,
-          upgrade_present headers,
-          check_request request )
-      with
-    | `HTTP_1_1, `GET, Some up, Some key, true, true
-      when String.Ascii.lowercase up = "websocket" ->
-        Lwt.return key
-    | _ ->
-        write_failed_response oc
-        >>= fun () -> Lwt.fail (Protocol_error "Bad headers") )
-    >>= fun key ->
-    let hash = key ^ websocket_uuid |> b64_encoded_sha1sum in
-    let response_headers =
-      C.Header.of_list
-        [ ("Upgrade", "websocket"); ("Connection", "Upgrade");
-          ("Sec-WebSocket-Accept", hash) ] in
-    let response =
-      C.Response.make ~status:`Switching_protocols ~encoding:C.Transfer.Unknown
-        ~headers:response_headers () in
-    Response.write (fun _writer -> Lwt.return_unit) response oc
-    >>= fun () ->
-    let client =
-      Connected_client.create ?read_buf ?write_buf request flow ic oc in
-    react client in
   Conduit_lwt_unix.serve ~on_exn ?timeout ?stop ~ctx ~mode (fun flow ic oc ->
       set_tcp_nodelay flow ;
-      server_fun (Conduit_lwt_unix.endp_of_flow flow) ic oc )
+      Lwt.catch
+        (fun () ->
+          server_fun ?read_buf ?write_buf check_request
+            (Conduit_lwt_unix.endp_of_flow flow)
+            ic oc react )
+        (function
+          | End_of_file -> Lwt.return_unit
+          | HTTP_Error _ -> Lwt.return_unit
+          | exn -> Lwt.fail exn ) )
 
 let mk_frame_stream recv =
   let f () =
