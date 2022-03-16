@@ -12,6 +12,7 @@ let client uri =
   >>= fun client ->
   connect ~ctx client uri
   >>= fun conn ->
+  let close_sent = ref false in
   let rec react () =
     Websocket_lwt_unix.read conn
     >>= function
@@ -19,10 +20,14 @@ let client uri =
         write conn (Frame.create ~opcode:Pong ()) >>= react
     | {opcode= Close; content; _} ->
         (* Immediately echo and pass this last message to the user *)
-        if String.length content >= 2 then
-          write conn
-            (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
-        else write conn (Frame.close 1000)
+        ( if !close_sent then
+            Lwt.return_unit
+          else if String.length content >= 2 then
+            write conn
+              (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
+          else write conn (Frame.close 1000) )
+        >>= fun () ->
+        Websocket_lwt_unix.close_transport conn
     | {opcode= Pong; _} -> react ()
     | {opcode= Text; content; _} | {opcode= Binary; content; _} ->
         Lwt_io.printf "> %s\n> %!" content >>= react
@@ -32,7 +37,8 @@ let client uri =
     >>= function
     | None ->
         Lwt_log.debug ~section "Got EOF. Sending a close frame."
-        >>= fun () -> write conn (Frame.create ~opcode:Close ()) >>= pushf
+        >>= fun () -> write conn (Frame.create ~opcode:Close ())
+        >>= fun () -> close_sent := true; pushf ()
     | Some content -> write conn (Frame.create ~content ()) >>= pushf in
   pushf () <?> react ()
 
