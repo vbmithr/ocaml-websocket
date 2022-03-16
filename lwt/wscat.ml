@@ -12,20 +12,18 @@ let client uri =
   >>= fun client ->
   connect ~ctx client uri
   >>= fun conn ->
-  let react fr =
-    match fr.Frame.opcode with
-    | Frame.Opcode.Ping -> write conn (Frame.create ~opcode:Pong ())
-    | Close ->
+  let react = function
+    | {Frame.opcode= Ping; _} -> write conn (Frame.create ~opcode:Pong ())
+    | {opcode= Close; content; _} ->
         (* Immediately echo and pass this last message to the user *)
-        ( if String.length fr.content >= 2 then
+        ( if String.length content >= 2 then
           write conn
-            (Frame.create ~opcode:Close
-               ~content:(String.sub fr.content 0 2)
-               () )
+            (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
         else write conn (Frame.close 1000) )
         >>= fun () -> Lwt.fail Exit
-    | Pong -> Lwt.return_unit
-    | Text | Binary -> Lwt_io.printf "> %s\n> %!" fr.content
+    | {opcode= Pong; _} -> Lwt.return_unit
+    | {opcode= Text; content; _} | {opcode= Binary; content; _} ->
+        Lwt_io.printf "> %s\n> %!" content
     | _ ->
         Websocket_lwt_unix.close ~reason:(1002, None) conn
         >>= fun () -> Lwt.fail Exit in
