@@ -127,4 +127,4 @@ let command =
         >>= Tcp.Server.close_finished in
   Command.async_spec ~summary:"telnet-like interface to Websockets" spec run
 
-let () = Command.run command
+let () = Command_unix.run command

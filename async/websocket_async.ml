@@ -17,6 +17,7 @@
 
 open Websocket
 open Core
+module Time_ns = Time_ns_unix
 open Core.Poly
 open Async
 open Cohttp
