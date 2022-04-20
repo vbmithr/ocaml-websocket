@@ -223,8 +223,7 @@ let server ?(name = "websocket.server")
     let headers = Cohttp.Request.headers request in
     if
       not
-        ( version = `HTTP_1_1
-        && meth = `GET
+        ( version = `HTTP_1_1 && meth = `GET
         && Option.map (Header.get headers "upgrade") ~f:String.lowercase
            = Some "websocket"
         && upgrade_present headers )
