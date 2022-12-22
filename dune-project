@@ -56,8 +56,9 @@
  (depends
   (ocaml (>= 4.06.0))
   (websocket (= :version))
-  (core (>= v0.13.0))
-  (async (>= v0.13.0))
+  (core (>= v0.15.0))
+  (core_unix (>= v0.15.0))
+  (async (>= v0.15.0))
   (cohttp-async (>= 5.0.0))
   (logs-async (>= 1.1))
   (logs-async-reporter (>= 1.0))))
