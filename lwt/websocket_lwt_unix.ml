@@ -106,7 +106,9 @@ let connect ?(extra_headers = Cohttp.Header.init ())
   >|= fun (ic, oc) ->
   let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
   let read_frame () =
-    Lwt.catch read_frame (fun exn ->
+    Lwt.catch read_frame (function
+      | Lwt.Canceled as exn -> Lwt.fail exn
+      | exn ->
         Lwt.async (fun () -> Lwt_io.close ic) ;
         Lwt.fail exn ) in
   let buf = Buffer.create 128 in
