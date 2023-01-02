@@ -43,7 +43,12 @@ module Frame : sig
     val pp : Format.formatter -> t -> unit
   end
 
-  type t = {opcode: Opcode.t; extension: int; final: bool; content: string}
+  type t = {
+    opcode : Opcode.t;
+    extension : int;
+    final : bool;
+    content : string;
+  }
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string

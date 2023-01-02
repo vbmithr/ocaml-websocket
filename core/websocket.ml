@@ -73,9 +73,14 @@ module Frame = struct
     let is_ctrl opcode = to_enum opcode > 7
   end
 
-  type t = {opcode: Opcode.t; extension: int; final: bool; content: string}
+  type t = {
+    opcode : Opcode.t;
+    extension : int;
+    final : bool;
+    content : string;
+  }
 
-  let pp ppf {opcode; extension; final; content} =
+  let pp ppf { opcode; extension; final; content } =
     Format.fprintf ppf "[%a (0x%x) (final=%b) %s]" Opcode.pp opcode extension
       final content
 
@@ -83,7 +88,7 @@ module Frame = struct
 
   let create ?(opcode = Opcode.Text) ?(extension = 0) ?(final = true)
       ?(content = "") () =
-    {opcode; extension; final; content}
+    { opcode; extension; final; content }
 
   let of_bytes ?opcode ?extension ?final content =
     let content = Bytes.unsafe_to_string content in
@@ -91,7 +96,7 @@ module Frame = struct
 
   let close code =
     let content = Bytes.create 2 in
-    EndianBytes.BigEndian.set_int16 content 0 code ;
+    EndianBytes.BigEndian.set_int16 content 0 code;
     of_bytes ~opcode:Opcode.Close content
 end
 
@@ -107,12 +112,9 @@ let set_bit v idx b = if b then v lor (1 lsl idx) else v land lnot (1 lsl idx)
 let int_value shift len v = (v lsr shift) land ((1 lsl len) - 1)
 
 let upgrade_present hs =
-  Cohttp.Header.get_multi hs "connection"
-  |> fun hs ->
-  List.map (String.cuts ~sep:",") hs
-  |> fun hs ->
-  List.flatten hs
-  |> fun hs ->
+  Cohttp.Header.get_multi hs "connection" |> fun hs ->
+  List.map (String.cuts ~sep:",") hs |> fun hs ->
+  List.flatten hs |> fun hs ->
   List.map String.(fun h -> h |> String.Ascii.lowercase |> trim) hs
   |> List.mem "upgrade"
 
@@ -122,7 +124,8 @@ let proto_error x = Format.kasprintf (fun x -> raise (Protocol_error x)) x
 
 let check_origin ?(origin_mandatory = false) ~hosts =
   let pred origin_host =
-    List.exists (fun h -> String.Ascii.lowercase h = origin_host) hosts in
+    List.exists (fun h -> String.Ascii.lowercase h = origin_host) hosts
+  in
   fun request ->
     let headers = request.Cohttp.Request.headers in
     match Cohttp.Header.get headers "origin" with
@@ -133,7 +136,7 @@ let check_origin ?(origin_mandatory = false) ~hosts =
         | None -> false
         | Some host ->
             (* host is already lowercased by Uri *)
-            pred host )
+            pred host)
 
 let check_origin_with_host request =
   let headers = request.Cohttp.Request.headers in
@@ -145,7 +148,7 @@ let check_origin_with_host request =
       let hostname =
         match String.cut ~sep:":" host with None -> host | Some (h, _) -> h
       in
-      check_origin ~hosts:[hostname] request
+      check_origin ~hosts:[ hostname ] request
 
 module type S = sig
   module IO : Cohttp.S.IO
@@ -201,25 +204,22 @@ module Make (IO : Cohttp.S.IO) = struct
   let is_client mode = mode <> Server
 
   let rec read_exactly ic remaining buf =
-    read ic remaining
-    >>= function
+    read ic remaining >>= function
     | "" -> return None
     | s ->
         let recv_len = String.length s in
-        Buffer.add_string buf s ;
+        Buffer.add_string buf s;
         if remaining - recv_len <= 0 then return @@ Some (Buffer.contents buf)
         else read_exactly ic (remaining - recv_len) buf
 
   let read_uint16 ic buf =
-    read_exactly ic 2 buf
-    >>= fun s ->
+    read_exactly ic 2 buf >>= fun s ->
     match s with
     | None -> return None
     | Some s -> return @@ Some (EndianString.BigEndian.get_uint16 s 0)
 
   let read_int64 ic buf =
-    read_exactly ic 8 buf
-    >>= fun s ->
+    read_exactly ic 8 buf >>= fun s ->
     match s with
     | None -> return None
     | Some s ->
@@ -235,34 +235,35 @@ module Make (IO : Cohttp.S.IO) = struct
       match len with
       | n when n < 126 -> len
       | n when n < 1 lsl 16 -> 126
-      | _ -> 127 in
+      | _ -> 127
+    in
     let hdr = set_bit 0 15 fr.final in
     (* We do not support extensions for now *)
     let hdr = hdr lor (opcode lsl 8) in
     let hdr = set_bit hdr 7 (is_client mode) in
     let hdr = hdr lor payload_len in
     (* Payload len is guaranteed to fit in 7 bits *)
-    EndianBytes.BigEndian.set_int16 scratch 0 hdr ;
-    Buffer.add_subbytes buf scratch 0 2 ;
-    ( match len with
+    EndianBytes.BigEndian.set_int16 scratch 0 hdr;
+    Buffer.add_subbytes buf scratch 0 2;
+    (match len with
     | n when n < 126 -> ()
     | n when n < 1 lsl 16 ->
-        EndianBytes.BigEndian.set_int16 scratch 0 n ;
+        EndianBytes.BigEndian.set_int16 scratch 0 n;
         Buffer.add_subbytes buf scratch 0 2
     | n ->
-        EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n) ;
-        Buffer.add_subbytes buf scratch 0 8 ) ;
-    ( match mode with
+        EndianBytes.BigEndian.set_int64 scratch 0 Int64.(of_int n);
+        Buffer.add_subbytes buf scratch 0 8);
+    (match mode with
     | Server -> ()
     | Client random_string ->
         let mask = random_string 4 in
-        Buffer.add_string buf mask ;
-        if len > 0 then xor mask content ) ;
+        Buffer.add_string buf mask;
+        if len > 0 then xor mask content);
     Buffer.add_bytes buf content
 
   let close_with_code mode buf oc code =
-    Buffer.clear buf ;
-    write_frame_to_buf ~mode buf @@ Frame.close code ;
+    Buffer.clear buf;
+    write_frame_to_buf ~mode buf @@ Frame.close code;
     write oc @@ Buffer.contents buf
 
   let read_frame ic oc buf mode hdr =
@@ -274,112 +275,115 @@ module Make (IO : Cohttp.S.IO) = struct
     let frame_masked = is_bit_set 7 hdr_part2 in
     let length = int_value 0 7 hdr_part2 in
     let opcode = Frame.Opcode.of_enum opcode in
-    Buffer.clear buf ;
-    ( match length with
+    Buffer.clear buf;
+    (match length with
     | i when i < 126 -> return i
     | 126 -> (
-        read_uint16 ic buf
-        >>= function Some i -> return i | None -> return @@ -1 )
+        read_uint16 ic buf >>= function
+        | Some i -> return i
+        | None -> return @@ -1)
     | 127 -> (
-        read_int64 ic buf
-        >>= function Some i -> return i | None -> return @@ -1 )
-    | _ -> return @@ -1 )
+        read_int64 ic buf >>= function
+        | Some i -> return i
+        | None -> return @@ -1)
+    | _ -> return @@ -1)
     >>= fun payload_len ->
     if payload_len = -1 then proto_error "payload len = %d" length
     else if extension <> 0 then
-      close_with_code mode buf oc 1002
-      >>= fun () -> proto_error "unsupported extension"
+      close_with_code mode buf oc 1002 >>= fun () ->
+      proto_error "unsupported extension"
     else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
-      close_with_code mode buf oc 1002
-      >>= fun () -> proto_error "control frame too big"
+      close_with_code mode buf oc 1002 >>= fun () ->
+      proto_error "control frame too big"
     else
-      ( if frame_masked then (
-        Buffer.clear buf ;
-        read_exactly ic 4 buf
-        >>= function
-        | None -> proto_error "could not read mask" | Some mask -> return mask )
-      else return String.empty )
+      (if frame_masked then (
+       Buffer.clear buf;
+       read_exactly ic 4 buf >>= function
+       | None -> proto_error "could not read mask"
+       | Some mask -> return mask)
+      else return String.empty)
       >>= fun mask ->
       if payload_len = 0 then
         return @@ Frame.create ~opcode ~extension ~final ()
       else (
-        Buffer.clear buf ;
-        read_exactly ic payload_len buf
-        >>= fun payload ->
+        Buffer.clear buf;
+        read_exactly ic payload_len buf >>= fun payload ->
         match payload with
         | None -> proto_error "could not read payload (len=%d)" payload_len
         | Some payload ->
             let payload = Bytes.unsafe_of_string payload in
-            if frame_masked then xor mask payload ;
+            if frame_masked then xor mask payload;
             let frame = Frame.of_bytes ~opcode ~extension ~final payload in
-            return frame )
+            return frame)
 
   let make_read_frame ?(buf = Buffer.create 128) ~mode ic oc () =
-    Buffer.clear buf ;
-    read_exactly ic 2 buf
-    >>= function
-    | None -> raise End_of_file | Some hdr -> read_frame ic oc buf mode hdr
+    Buffer.clear buf;
+    read_exactly ic 2 buf >>= function
+    | None -> raise End_of_file
+    | Some hdr -> read_frame ic oc buf mode hdr
 
   module Request = Cohttp.Request.Make (IO)
   module Response = Cohttp.Response.Make (IO)
 
   module Connected_client = struct
-    type t =
-      { buffer: Buffer.t;
-        endp: Conduit.endp;
-        ic: Request.IO.ic;
-        oc: Request.IO.oc;
-        http_request: Cohttp.Request.t;
-        standard_frame_replies: bool;
-        read_frame: unit -> Frame.t IO.t }
+    type t = {
+      buffer : Buffer.t;
+      endp : Conduit.endp;
+      ic : Request.IO.ic;
+      oc : Request.IO.oc;
+      http_request : Cohttp.Request.t;
+      standard_frame_replies : bool;
+      read_frame : unit -> Frame.t IO.t;
+    }
 
-    let source {endp; _} = endp
+    let source { endp; _ } = endp
 
     let create ?read_buf ?(write_buf = Buffer.create 128) http_request endp ic
         oc =
       let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
-      { buffer= write_buf;
+      {
+        buffer = write_buf;
         endp;
         ic;
         oc;
         http_request;
-        standard_frame_replies= false;
-        read_frame }
+        standard_frame_replies = false;
+        read_frame;
+      }
 
-    let send {buffer; oc; _} frame =
-      Buffer.clear buffer ;
-      write_frame_to_buf ~mode:Server buffer frame ;
+    let send { buffer; oc; _ } frame =
+      Buffer.clear buffer;
+      write_frame_to_buf ~mode:Server buffer frame;
       IO.write oc @@ Buffer.contents buffer
 
-    let send_multiple {buffer; oc; _} frames =
-      Buffer.clear buffer ;
-      List.iter (write_frame_to_buf ~mode:Server buffer) frames ;
+    let send_multiple { buffer; oc; _ } frames =
+      Buffer.clear buffer;
+      List.iter (write_frame_to_buf ~mode:Server buffer) frames;
       IO.write oc @@ Buffer.contents buffer
 
     let standard_recv t =
-      t.read_frame ()
-      >>= fun fr ->
+      t.read_frame () >>= fun fr ->
       match fr.Frame.opcode with
       | Frame.Opcode.Ping ->
-          send t @@ Frame.create ~opcode:Frame.Opcode.Pong ()
-          >>= fun () -> return fr
+          send t @@ Frame.create ~opcode:Frame.Opcode.Pong () >>= fun () ->
+          return fr
       | Frame.Opcode.Close ->
           (* Immediately echo and pass this last message to the user *)
-          ( if String.length fr.Frame.content >= 2 then
-            send t
-            @@ Frame.create ~opcode:Frame.Opcode.Close
-                 ~content:
-                   String.(
-                     sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)
-                 ()
-          else send t @@ Frame.close 1000 )
+          (if String.length fr.Frame.content >= 2 then
+           send t
+           @@ Frame.create ~opcode:Frame.Opcode.Close
+                ~content:
+                  String.(
+                    sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)
+                ()
+          else send t @@ Frame.close 1000)
           >>= fun () -> return fr
       | _ -> return fr
 
     let recv t =
       if t.standard_frame_replies then standard_recv t else t.read_frame ()
 
-    let http_request {http_request; _} = http_request
-    let make_standard t = {t with standard_frame_replies= true}
+    let http_request { http_request; _ } = http_request
+    let make_standard t = { t with standard_frame_replies = true }
   end
 end
