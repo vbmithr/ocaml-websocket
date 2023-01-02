@@ -1,6 +1,8 @@
-2.16 (2022-12-22) Nancy
+2.16 (2023-01-02) Nancy
 -----------------------
 
+- flush output after writing frames
+- ocamlformat: use default profile
 - async: Adapt to Core/Async v0.15
 
 2.15 (2021-03-16) Nancy
