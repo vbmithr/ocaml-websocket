@@ -95,11 +95,13 @@ let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
       >>= fun () -> forward_frames_to_app ws_to_app
     in
     let forward_frames_to_net ws_to_net app_to_ws =
-      Writer.transfer ws_to_net app_to_ws (fun fr ->
-          Buffer.clear buf;
-          write_frame_to_buf ~mode:(Client random_string) buf fr;
-          let contents = Buffer.contents buf in
-          Writer.write ws_to_net contents)
+      Writer.transfer' ws_to_net app_to_ws (fun frs ->
+          Queue.iter frs ~f:(fun fr ->
+              Buffer.clear buf;
+              write_frame_to_buf ~mode:(Client random_string) buf fr;
+              let contents = Buffer.contents buf in
+              Writer.write ws_to_net contents);
+          Writer.flushed ws_to_net)
     in
     Deferred.any_unit
       [
@@ -350,7 +352,7 @@ let upgrade_connection ?(select_protocol = fun _ -> None)
           | true -> Deferred.unit
           | false ->
               Writer.write writer ping_frame_string;
-              ping_loop ()
+              Writer.flushed writer >>= fun () -> ping_loop ()
         in
         ping_loop ()
     in
