@@ -156,7 +156,7 @@ module type S = sig
   type mode = Client of (int -> string) | Server
 
   val make_read_frame :
-    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
+    Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
 
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 
@@ -195,35 +195,21 @@ module type S = sig
   end
 end
 
-module Make (IO : Cohttp.S.IO) = struct
+module type IO = sig
+  include Cohttp.S.IO
+
+  val read_uint16 : ic -> int option t
+  val read_int64 : ic -> int64 option t
+  val read_exactly : ic -> int -> string option t
+end
+
+module Make (IO : IO) = struct
   open IO
   module IO = IO
 
   type mode = Client of (int -> string) | Server
 
   let is_client mode = mode <> Server
-
-  let rec read_exactly ic remaining buf =
-    read ic remaining >>= function
-    | "" -> return None
-    | s ->
-        let recv_len = String.length s in
-        Buffer.add_string buf s;
-        if remaining - recv_len <= 0 then return @@ Some (Buffer.contents buf)
-        else read_exactly ic (remaining - recv_len) buf
-
-  let read_uint16 ic buf =
-    read_exactly ic 2 buf >>= fun s ->
-    match s with
-    | None -> return None
-    | Some s -> return @@ Some (EndianString.BigEndian.get_uint16 s 0)
-
-  let read_int64 ic buf =
-    read_exactly ic 8 buf >>= fun s ->
-    match s with
-    | None -> return None
-    | Some s ->
-        return @@ Some (Int64.to_int @@ EndianString.BigEndian.get_int64 s 0)
 
   let write_frame_to_buf ~mode buf fr =
     let scratch = Bytes.create 8 in
@@ -279,12 +265,10 @@ module Make (IO : Cohttp.S.IO) = struct
     (match length with
     | i when i < 126 -> return i
     | 126 -> (
-        read_uint16 ic buf >>= function
-        | Some i -> return i
-        | None -> return @@ -1)
+        read_uint16 ic >>= function Some i -> return i | None -> return @@ -1)
     | 127 -> (
-        read_int64 ic buf >>= function
-        | Some i -> return i
+        read_int64 ic >>= function
+        | Some i -> return (Int64.to_int i)
         | None -> return @@ -1)
     | _ -> return @@ -1)
     >>= fun payload_len ->
@@ -298,7 +282,7 @@ module Make (IO : Cohttp.S.IO) = struct
     else
       (if frame_masked then (
        Buffer.clear buf;
-       read_exactly ic 4 buf >>= function
+       read_exactly ic 4 >>= function
        | None -> proto_error "could not read mask"
        | Some mask -> return mask)
       else return String.empty)
@@ -307,7 +291,7 @@ module Make (IO : Cohttp.S.IO) = struct
         return @@ Frame.create ~opcode ~extension ~final ()
       else (
         Buffer.clear buf;
-        read_exactly ic payload_len buf >>= fun payload ->
+        read_exactly ic payload_len >>= fun payload ->
         match payload with
         | None -> proto_error "could not read payload (len=%d)" payload_len
         | Some payload ->
@@ -316,9 +300,9 @@ module Make (IO : Cohttp.S.IO) = struct
             let frame = Frame.of_bytes ~opcode ~extension ~final payload in
             return frame)
 
-  let make_read_frame ?(buf = Buffer.create 128) ~mode ic oc () =
+  let make_read_frame buf ~mode ic oc () =
     Buffer.clear buf;
-    read_exactly ic 2 buf >>= function
+    read_exactly ic 2 >>= function
     | None -> raise End_of_file
     | Some hdr -> read_frame ic oc buf mode hdr
 
@@ -338,9 +322,9 @@ module Make (IO : Cohttp.S.IO) = struct
 
     let source { endp; _ } = endp
 
-    let create ?read_buf ?(write_buf = Buffer.create 128) http_request endp ic
-        oc =
-      let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
+    let create ?(read_buf = Buffer.create 128) ?(write_buf = Buffer.create 128)
+        http_request endp ic oc =
+      let read_frame = make_read_frame read_buf ~mode:Server ic oc in
       {
         buffer = write_buf;
         endp;

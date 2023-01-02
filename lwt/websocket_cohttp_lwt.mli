@@ -19,6 +19,7 @@
 open Websocket
 
 val upgrade_connection :
+  ?buf:Buffer.t ->
   Cohttp.Request.t ->
   (Frame.t -> unit) ->
   (Cohttp_lwt_unix.Server.response_action * (Frame.t option -> unit)) Lwt.t

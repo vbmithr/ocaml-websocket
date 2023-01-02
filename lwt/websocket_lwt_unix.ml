@@ -18,7 +18,33 @@
 open Astring
 open Websocket
 open Lwt.Infix
-include Websocket.Make (Cohttp_lwt_unix.IO)
+
+module LwtIO = struct
+  include Cohttp_lwt_unix.IO
+
+  let read_uint16 ic =
+    Lwt.catch
+      (fun () ->
+        Lwt_io.BE.read_int16 ic >>= fun i ->
+        let i = if i < 0 then i + (1 lsl 16) else i in
+        return (Some i))
+      (fun _ -> return None)
+
+  let read_int64 ic =
+    Lwt.catch
+      (fun () -> Lwt_io.BE.read_int64 ic >>= fun i -> return (Some i))
+      (fun _ -> return None)
+
+  let read_exactly ic i =
+    let buf = Bytes.create i in
+    Lwt.catch
+      (fun () ->
+        Lwt_io.read_into_exactly ic buf 0 i >|= fun () ->
+        Some (Bytes.unsafe_to_string buf))
+      (fun _ -> return None)
+end
+
+include Websocket.Make (LwtIO)
 
 let section = Lwt_log.Section.make "websocket_lwt_unix"
 
@@ -100,25 +126,28 @@ let read { read_frame; _ } = read_frame ()
 let write { write_frame; _ } frame = write_frame frame
 let close_transport { oc; _ } = Lwt_io.close oc
 
-let connect ?(extra_headers = Cohttp.Header.init ())
+let connect ?(read_buf = Buffer.create 128) ?(write_buf = Buffer.create 128)
+    ?(extra_headers = Cohttp.Header.init ())
     ?(random_string = Websocket.Rng.init ())
-    ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ?buf client url =
+    ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) client url =
   let nonce = Base64.encode_exn (random_string 16) in
   connect ctx client url nonce extra_headers >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
+  let read_frame =
+    make_read_frame read_buf ~mode:(Client random_string) ic oc
+  in
   let read_frame () =
     Lwt.catch read_frame (fun exn ->
         Lwt.async (fun () -> Lwt_io.close ic);
         Lwt.fail exn)
   in
-  let buf = Buffer.create 128 in
   let write_frame frame =
-    Buffer.clear buf;
-    Lwt.wrap2 (write_frame_to_buf ~mode:(Client random_string)) buf frame
+    Buffer.clear write_buf;
+    Lwt.wrap2 (write_frame_to_buf ~mode:(Client random_string)) write_buf frame
     >>= fun () ->
     Lwt.catch
       (fun () ->
-        Lwt_io.write oc (Buffer.contents buf) >>= fun () -> Lwt_io.flush oc)
+        Lwt_io.write oc (Buffer.contents write_buf) >>= fun () ->
+        Lwt_io.flush oc)
       (fun exn ->
         Lwt.async (fun () -> Lwt_io.close oc);
         Lwt.fail exn)

@@ -84,7 +84,7 @@ module type S = sig
   type mode = Client of (int -> string) | Server
 
   val make_read_frame :
-    ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
+    Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
 
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
 
@@ -123,5 +123,13 @@ module type S = sig
   end
 end
 
-module Make (IO : Cohttp.S.IO) :
+module type IO = sig
+  include Cohttp.S.IO
+
+  val read_uint16 : ic -> int option t
+  val read_int64 : ic -> int64 option t
+  val read_exactly : ic -> int -> string option t
+end
+
+module Make (IO : IO) :
   S with type 'a IO.t = 'a IO.t and type IO.ic = IO.ic and type IO.oc = IO.oc

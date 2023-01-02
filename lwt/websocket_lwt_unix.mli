@@ -15,6 +15,13 @@
  *
  *)
 
+module LwtIO :
+  Websocket.IO
+    with type 'a t = 'a Lwt.t
+     and type ic = Lwt_io.input_channel
+     and type oc = Lwt_io.output_channel
+     and type conn = Conduit_lwt_unix.flow
+
 (** This module implements a websocket client and server library in
     the spirit of the otherwise similar TCP functions of the [Lwt_io]
     module. The websocket protocol add message framing in addition of
@@ -38,10 +45,11 @@ val close_transport : conn -> unit Lwt.t
    yourself. *)
 
 val connect :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
   ?ctx:Conduit_lwt_unix.ctx ->
-  ?buf:Buffer.t ->
   Conduit_lwt_unix.client ->
   Uri.t ->
   conn Lwt.t

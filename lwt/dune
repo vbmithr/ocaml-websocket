@@ -10,7 +10,7 @@
  (public_name websocket-lwt-unix.cohttp)
  (modules websocket_cohttp_lwt)
  (optional)
- (libraries websocket cohttp-lwt-unix))
+ (libraries websocket websocket_lwt_unix cohttp-lwt-unix))
 
 (executable
  (name wscat)

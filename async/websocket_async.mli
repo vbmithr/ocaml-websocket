@@ -29,6 +29,8 @@ open Async
 module Frame = Websocket.Frame
 
 val client :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
   ?random_string:(int -> string) ->
@@ -41,6 +43,8 @@ val client :
   unit Deferred.Or_error.t
 
 val client_ez :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?opcode:Frame.Opcode.t ->
   ?name:string ->
   ?extra_headers:Cohttp.Header.t ->
@@ -52,6 +56,8 @@ val client_ez :
   string Pipe.Reader.t * string Pipe.Writer.t
 
 val server :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?name:string ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
   ?select_protocol:(string -> string option) ->
@@ -74,6 +80,8 @@ val server :
     determined to [Error Exit]. *)
 
 val upgrade_connection :
+  ?read_buf:Buffer.t ->
+  ?write_buf:Buffer.t ->
   ?select_protocol:(string -> string option) ->
   ?ping_interval:Core.Time_ns.Span.t ->
   app_to_ws:Frame.t Pipe.Reader.t ->

@@ -22,8 +22,31 @@ open Core.Poly
 open Async
 open Cohttp
 module Frame = Websocket.Frame
-module Async_IO = Websocket.Make (Cohttp_async.Io)
-open Async_IO
+
+module AsyncIO = Websocket.Make (struct
+  include Cohttp_async.Io
+
+  let read_uint16 ic =
+    let buf = Bytes.create 2 in
+    Reader.really_read ic buf >>| function
+    | `Eof _ -> None
+    | `Ok -> Some (Caml.Bytes.get_int16_be buf 0)
+
+  let read_int64 ic =
+    let buf = Bytes.create 8 in
+    Reader.really_read ic buf >>| function
+    | `Eof _ -> None
+    | `Ok -> Some (Caml.Bytes.get_int64_be buf 0)
+
+  let read_exactly ic i =
+    let buf = Bytes.create i in
+    Reader.really_read ic buf >>| function
+    | `Eof _ -> None
+    | `Ok ->
+        Some (Bytes.unsafe_to_string ~no_mutation_while_string_reachable:buf)
+end)
+
+open AsyncIO
 
 let set_tcp_nodelay writer =
   let socket = Socket.of_fd (Writer.fd writer) Socket.Type.tcp in
@@ -32,7 +55,8 @@ let set_tcp_nodelay writer =
 let src =
   Logs.Src.create "websocket.async.client" ~doc:"Websocket client for Async"
 
-let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
+let client ?(read_buf = Buffer.create 128) ?(write_buf = Buffer.create 128)
+    ?(name = "websocket.client") ?(extra_headers = Header.init ())
     ?(random_string = Rng.init ()) ?initialized ~app_to_ws ~ws_to_app ~net_to_ws
     ~ws_to_net uri =
   let drain_handshake r w =
@@ -85,9 +109,8 @@ let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
     drain_handshake net_to_ws ws_to_net >>= fun () ->
     Option.iter initialized ~f:(fun ivar -> Ivar.fill ivar ());
     let read_frame =
-      make_read_frame ~mode:(Client random_string) net_to_ws ws_to_net
+      make_read_frame read_buf ~mode:(Client random_string) net_to_ws ws_to_net
     in
-    let buf = Buffer.create 128 in
     let rec forward_frames_to_app ws_to_app =
       read_frame () >>= fun fr ->
       (if not @@ Pipe.is_closed ws_to_app then Pipe.write ws_to_app fr
@@ -97,9 +120,9 @@ let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
     let forward_frames_to_net ws_to_net app_to_ws =
       Writer.transfer' ws_to_net app_to_ws (fun frs ->
           Queue.iter frs ~f:(fun fr ->
-              Buffer.clear buf;
-              write_frame_to_buf ~mode:(Client random_string) buf fr;
-              let contents = Buffer.contents buf in
+              Buffer.clear write_buf;
+              write_frame_to_buf ~mode:(Client random_string) write_buf fr;
+              let contents = Buffer.contents write_buf in
               Writer.write ws_to_net contents);
           Writer.flushed ws_to_net)
     in
@@ -119,8 +142,8 @@ let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
   Lazy.force finally_f;
   res
 
-let client_ez ?opcode ?(name = "websocket.client_ez") ?extra_headers ?heartbeat
-    ?random_string uri net_to_ws ws_to_net =
+let client_ez ?read_buf ?write_buf ?opcode ?(name = "websocket.client_ez")
+    ?extra_headers ?heartbeat ?random_string uri net_to_ws ws_to_net =
   let app_to_ws, reactor_write = Pipe.create () in
   let to_reactor_write, client_write = Pipe.create () in
   let client_read, ws_to_app = Pipe.create () in
@@ -197,8 +220,8 @@ let client_ez ?opcode ?(name = "websocket.client_ez") ?extra_headers ?heartbeat
        (fun () ->
          Deferred.any_unit
            [
-             client ~name ?extra_headers ?random_string ~initialized ~app_to_ws
-               ~ws_to_app ~net_to_ws ~ws_to_net uri
+             client ?read_buf ?write_buf ~name ?extra_headers ?random_string
+               ~initialized ~app_to_ws ~ws_to_app ~net_to_ws ~ws_to_net uri
              |> Deferred.ignore_m;
              react ();
              Deferred.all_unit Pipe.[ closed client_read; closed client_write ];
@@ -208,7 +231,8 @@ let client_ez ?opcode ?(name = "websocket.client_ez") ?extra_headers ?heartbeat
 let src =
   Logs.Src.create "websocket.async.server" ~doc:"Websocket server for Async"
 
-let server ?(name = "websocket.server")
+let server ?(read_buf = Buffer.create 128) ?(write_buf = Buffer.create 128)
+    ?(name = "websocket.server")
     ?(check_request = fun _ -> Deferred.return true)
     ?(select_protocol = fun _ -> None) ~reader ~writer ~app_to_ws ~ws_to_app ()
     =
@@ -276,16 +300,15 @@ let server ?(name = "websocket.server")
       handshake reader writer)
   |> Deferred.Or_error.bind ~f:(fun () ->
          set_tcp_nodelay writer;
-         let read_frame = make_read_frame ~mode:Server reader writer in
+         let read_frame = make_read_frame read_buf ~mode:Server reader writer in
          let rec loop () = read_frame () >>= Pipe.write ws_to_app >>= loop in
          let transfer_end =
-           let buf = Buffer.create 128 in
            Pipe.transfer app_to_ws
              Writer.(pipe writer)
              ~f:(fun fr ->
-               Buffer.clear buf;
-               write_frame_to_buf ~mode:Server buf fr;
-               Buffer.contents buf)
+               Buffer.clear write_buf;
+               write_frame_to_buf ~mode:Server write_buf fr;
+               Buffer.contents write_buf)
          in
          Monitor.protect
            ~finally:(fun () ->
@@ -302,7 +325,8 @@ let server ?(name = "websocket.server")
                ])
          >>= Deferred.Or_error.return)
 
-let upgrade_connection ?(select_protocol = fun _ -> None)
+let upgrade_connection ?(read_buf = Buffer.create 128)
+    ?(write_buf = Buffer.create 128) ?(select_protocol = fun _ -> None)
     ?(ping_interval = Time_ns.Span.of_int_sec 50) ~app_to_ws ~ws_to_app ~f
     request =
   let headers = Cohttp.Request.headers request in
@@ -328,17 +352,16 @@ let upgrade_connection ?(select_protocol = fun _ -> None)
       ()
   in
   let handler reader writer =
-    let read_frame = make_read_frame ~mode:Server reader writer in
+    let read_frame = make_read_frame read_buf ~mode:Server reader writer in
     let rec loop () =
       try_with read_frame >>= function
       | Error _ -> Deferred.unit
       | Ok frame -> Pipe.write ws_to_app frame >>= loop
     in
-    let buf = Buffer.create 128 in
     let frame_to_string fr =
-      Buffer.clear buf;
-      write_frame_to_buf ~mode:Server buf fr;
-      Buffer.contents buf
+      Buffer.clear write_buf;
+      write_frame_to_buf ~mode:Server write_buf fr;
+      Buffer.contents write_buf
     in
     let ping () =
       if Time_ns.Span.(ping_interval = zero) then Deferred.never ()
