@@ -117,7 +117,8 @@ let connect ?(extra_headers = Cohttp.Header.init ())
     Lwt.wrap2 (write_frame_to_buf ~mode:(Client random_string)) buf frame
     >>= fun () ->
     Lwt.catch
-      (fun () -> Lwt_io.write oc (Buffer.contents buf))
+      (fun () ->
+        Lwt_io.write oc (Buffer.contents buf) >>= fun () -> Lwt_io.flush oc)
       (fun exn ->
         Lwt.async (fun () -> Lwt_io.close oc);
         Lwt.fail exn)
