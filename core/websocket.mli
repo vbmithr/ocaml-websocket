@@ -21,6 +21,8 @@ val upgrade_present : Cohttp.Header.t -> bool
 
 exception Protocol_error of string
 
+val proto_error : ('b, Format.formatter, unit, 'a) format4 -> 'b
+
 module Rng : sig
   val init : ?state:Random.State.t -> unit -> int -> string
   (** [init ?state ()] is a function that returns a string of random
@@ -40,6 +42,9 @@ module Frame : sig
       | Nonctrl of int
 
     val to_string : t -> string
+    val to_enum : t -> int
+    val of_enum : int -> t
+    val is_ctrl : t -> bool
     val pp : Format.formatter -> t -> unit
   end
 
@@ -57,6 +62,7 @@ module Frame : sig
     t
 
   val close : int -> t
+  val of_bytes : ?opcode:Opcode.t -> ?extension:int -> ?final:bool -> bytes -> t
 end
 
 val check_origin :

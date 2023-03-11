@@ -1,9 +1,9 @@
 (library
  (name websocket_async)
-  (public_name websocket-async)
-  (modules websocket_async)
-  (optional)
-  (libraries websocket logs-async cohttp-async))
+ (public_name websocket-async)
+ (modules websocket_async)
+ (optional)
+ (libraries websocket logs-async cohttp-async))
 
 (executable
  (name wscat)

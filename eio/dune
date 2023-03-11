@@ -1,0 +1,4 @@
+(library
+ (name websocket_eio)
+ (public_name websocket-eio)
+ (libraries websocket cohttp-eio))
