@@ -91,7 +91,7 @@ module Frame = struct
     { opcode; extension; final; content }
 
   let of_bytes ?opcode ?extension ?final content =
-    let content = Bytes.unsafe_to_string content in
+    let content = Bytes.to_string content in
     create ?opcode ?extension ?final ~content ()
 
   let close code =
@@ -228,7 +228,7 @@ module Make (IO : Cohttp.S.IO) = struct
   let write_frame_to_buf ~mode buf fr =
     let scratch = Bytes.create 8 in
     let open Frame in
-    let content = Bytes.unsafe_of_string fr.content in
+    let content = Bytes.of_string fr.content in
     let len = Bytes.length content in
     let opcode = Opcode.to_enum fr.opcode in
     let payload_len =
@@ -311,7 +311,7 @@ module Make (IO : Cohttp.S.IO) = struct
         match payload with
         | None -> proto_error "could not read payload (len=%d)" payload_len
         | Some payload ->
-            let payload = Bytes.unsafe_of_string payload in
+            let payload = Bytes.of_string payload in
             if frame_masked then xor mask payload;
             let frame = Frame.of_bytes ~opcode ~extension ~final payload in
             return frame)
