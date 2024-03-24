@@ -22,7 +22,7 @@ val upgrade_present : Cohttp.Header.t -> bool
 exception Protocol_error of string
 
 module Rng : sig
-  val init : ?state:Random.State.t -> unit -> int -> string
+  val init : unit -> int -> string
   (** [init ?state ()] is a function that returns a string of random
       bytes of length equal to its argument. *)
 end
