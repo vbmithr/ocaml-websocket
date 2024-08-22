@@ -32,8 +32,8 @@ let read_frames ic oc handler_fn : unit =
     inner () in
   inner ()
 
-let upgrade_connection (request : Cohttp_eio.Server.request) incoming_handler =
-  let request, buf, _ = request in
+let upgrade_connection (request : Http.Request.t) incoming_handler =
+  let request = request in
   let headers = Http.Request.headers request in
   let key =
     match Http.Header.get headers "sec-websocket-key" with
@@ -47,16 +47,16 @@ let upgrade_connection (request : Cohttp_eio.Server.request) incoming_handler =
         ("Sec-WebSocket-Accept", hash) ] in
   let frames_out_stream = Eio.Stream.create max_int in
   let frames_out_fn v = Eio.Stream.add frames_out_stream v in
-  let f (oc : Eio.Buf_write.t) =
+  let f (ic : Eio.Buf_read.t) (oc : Eio.Buf_write.t) =
     Eio.Fiber.both
       (* output: data for the client is written to the output
        * channel of the tcp connection *)
         (fun () -> send_frames frames_out_stream oc )
       (* input: data from the client is read from the input channel
        * of the tcp connection; pass it to handler function *)
-        (fun () -> read_frames buf oc incoming_handler ) in
-  let resp : Cohttp_eio.Server.response =
-    ( Http.Response.make ~status:`Switching_protocols ~version:`HTTP_1_1
-        ~headers:response_headers (),
-      Cohttp_eio.Body.(Custom f) ) in
+        (fun () -> read_frames ic oc incoming_handler ) in
+  let resp : Cohttp_eio.Server.response_action =
+    let http_response = Http.Response.make ~status:`Switching_protocols ~version:`HTTP_1_1 ~headers:response_headers () in
+    `Expert (http_response, f)
+  in 
   (resp, frames_out_fn)

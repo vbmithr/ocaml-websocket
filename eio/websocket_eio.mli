@@ -1,9 +1,9 @@
 open Websocket
 
 val upgrade_connection :
-  Cohttp_eio.Server.request ->
+  Http.Request.t ->
   (Frame.t -> unit) ->
-  Cohttp_eio.Server.response * (Frame.t -> unit)
+  Cohttp_eio.Server.response_action * (Frame.t -> unit)
 (** [upgrade_connection req incoming_handler] takes [req], a
         connection request, and [incoming_handler], a function that will
         process incoming websocket frames, and returns ([response_action],

@@ -1,15 +1,17 @@
 open Eio.Std
 open Websocket
 
-let handler ~sw : Cohttp_eio.Server.handler =
- fun ((req, _body, _stream) as request) ->
+let html_response s =
+  Cohttp_eio.Server.respond_string ~status:`OK ~body:s ()
+
+let handler ~sw con req _body : Cohttp_eio.Server.response_action =
   let open Frame in
   let uri = Http.Request.resource req in
   match uri with
   | "/" ->
       traceln "[PATH] /" ;
       let resp =
-        Cohttp_eio.Server.html_response
+        html_response
           {|
         <html>
         <head>
@@ -35,11 +37,11 @@ let handler ~sw : Cohttp_eio.Server.handler =
         </html>
         |}
       in
-      resp
+      `Response resp
   | "/ws" ->
       traceln "[PATH] /ws" ;
       let resp, send_frame =
-        Websocket_eio.upgrade_connection request (fun {opcode; content; _} ->
+        Websocket_eio.upgrade_connection req (fun {opcode; content; _} ->
             match opcode with
             | Opcode.Close -> traceln "[RECV] CLOSE"
             | _ -> traceln "[RECV] %s" content ) in
@@ -56,12 +58,14 @@ let handler ~sw : Cohttp_eio.Server.handler =
           go () in
       Fiber.fork ~sw go ; resp
   | _ ->
-      traceln "[PATH] Catch-all" ;
-      Cohttp_eio.Server.not_found_handler request
-
+      traceln "[PATH] Catch-all";
+      `Response (Http.Response.make ~status:`Not_found (), Cohttp_eio.Body.of_string "")
+      
 let start_server env sw port =
   traceln "[SERV] Listening for HTTP on port %d" port ;
-  Cohttp_eio.Server.run ~port env (handler ~sw)
+  let server = Cohttp_eio.Server.make_response_action ~callback:(handler ~sw) () in
+  let socket = Eio.Net.listen ~sw ~backlog:5 env#net (`Tcp (Eio.Net.Ipaddr.V4.loopback, port)) in
+  Cohttp_eio.Server.run ~port ~on_error:(Eio.traceln "%a" Fmt.exn) socket server 
 
 let () =
   let port = ref 7777 in
@@ -83,4 +87,6 @@ let () =
     | Some p -> port := p in
   let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " <options> port\nOptions are:" in
   Arg.parse speclist anon_fun usage_msg ;
-  Eio_main.run @@ fun env -> Switch.run @@ fun sw -> start_server env sw !port
+  Eio_main.run @@ fun env -> 
+  Switch.run @@ fun sw -> 
+  start_server env sw !port
