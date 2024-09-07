@@ -17,4 +17,4 @@
  (public_name wscat-lwt)
  (package websocket-lwt-unix)
  (modules wscat)
- (libraries conduit-lwt-unix websocket-lwt-unix))
+ (libraries conduit-lwt-unix websocket-lwt-unix sexplib))

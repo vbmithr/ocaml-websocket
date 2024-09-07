@@ -83,7 +83,7 @@ let client ?(name = "websocket.client") ?(extra_headers = Header.init ())
   in
   let run () =
     drain_handshake net_to_ws ws_to_net >>= fun () ->
-    Option.iter initialized ~f:(fun ivar -> Ivar.fill ivar ());
+    Option.iter initialized ~f:(fun ivar -> Ivar.fill_exn ivar ());
     let read_frame =
       make_read_frame ~mode:(Client random_string) net_to_ws ws_to_net
     in
