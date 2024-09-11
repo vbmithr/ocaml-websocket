@@ -34,7 +34,7 @@
   (cohttp (>= 5.0.0))
   (ocplib-endian (>= 1.0))
   (astring (>= 0.8.3))
-  mirage-crypto-rng))
+  (mirage-crypto-rng (>= 1.0.0))))
 
 (package
  (name websocket-async)
