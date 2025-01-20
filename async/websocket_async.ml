@@ -153,7 +153,8 @@ let client_ez ?opcode ?(name = "websocket.client_ez") ?extra_headers ?heartbeat
     Logs_async.debug ~src (fun m -> m "<- %a" Frame.pp fr) >>= fun () ->
     match fr.opcode with
     | Opcode.Ping ->
-        Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () >>| fun () -> None
+        Pipe.write w @@ Frame.create ~opcode:Opcode.Pong () ~content:fr.content
+        >>| fun () -> None
     | Opcode.Close ->
         (* Immediately echo and pass this last message to the user *)
         (if String.length fr.content >= 2 then
