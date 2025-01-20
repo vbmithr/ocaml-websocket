@@ -210,7 +210,9 @@ let src =
 
 let server ?(name = "websocket.server")
     ?(check_request = fun _ -> Deferred.return true)
-    ?(select_protocol = fun _ -> None) ~reader ~writer ~app_to_ws ~ws_to_app ()
+    ?(select_protocol = fun _ -> None)
+    ?max_frame_length
+    ~reader ~writer ~app_to_ws ~ws_to_app ()
     =
   let handshake r w =
     (Request.read r >>= function
@@ -276,7 +278,9 @@ let server ?(name = "websocket.server")
       handshake reader writer)
   |> Deferred.Or_error.bind ~f:(fun () ->
          set_tcp_nodelay writer;
-         let read_frame = make_read_frame ~mode:Server reader writer in
+         let read_frame =
+           make_read_frame ?max_len:max_frame_length ~mode:Server reader writer
+         in
          let rec loop () = read_frame () >>= Pipe.write ws_to_app >>= loop in
          let transfer_end =
            let buf = Buffer.create 128 in
@@ -303,7 +307,9 @@ let server ?(name = "websocket.server")
          >>= Deferred.Or_error.return)
 
 let upgrade_connection ?(select_protocol = fun _ -> None)
-    ?(ping_interval = Time_ns.Span.of_int_sec 50) ~app_to_ws ~ws_to_app ~f
+    ?(ping_interval = Time_ns.Span.of_int_sec 50)
+    ?max_frame_length
+    ~app_to_ws ~ws_to_app ~f
     request =
   let headers = Cohttp.Request.headers request in
   let key =
@@ -328,7 +334,9 @@ let upgrade_connection ?(select_protocol = fun _ -> None)
       ()
   in
   let handler reader writer =
-    let read_frame = make_read_frame ~mode:Server reader writer in
+    let read_frame =
+      make_read_frame ?max_len:max_frame_length ~mode:Server reader writer
+    in
     let rec loop () =
       try_with read_frame >>= function
       | Error _ -> Deferred.unit
