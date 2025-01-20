@@ -155,6 +155,7 @@ module type S = sig
   type mode = Client of (int -> string) | Server
 
   val make_read_frame :
+    ?max_len:int ->
     ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
 
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
@@ -177,6 +178,7 @@ module type S = sig
     type t
 
     val create :
+      ?max_len:int ->
       ?read_buf:Buffer.t ->
       ?write_buf:Buffer.t ->
       Cohttp.Request.t ->
@@ -265,7 +267,7 @@ module Make (IO : Cohttp.S.IO) = struct
     write_frame_to_buf ~mode buf @@ Frame.close code;
     write oc @@ Buffer.contents buf
 
-  let read_frame ic oc buf mode hdr =
+  let read_frame ?max_len ic oc buf mode hdr =
     let hdr_part1 = EndianString.BigEndian.get_int8 hdr 0 in
     let hdr_part2 = EndianString.BigEndian.get_int8 hdr 1 in
     let final = is_bit_set 7 hdr_part1 in
@@ -291,6 +293,10 @@ module Make (IO : Cohttp.S.IO) = struct
     else if extension <> 0 then
       close_with_code mode buf oc 1002 >>= fun () ->
       proto_error "unsupported extension"
+    else if (match max_len with Some max -> payload_len > max | None -> false)
+    then
+      close_with_code mode buf oc 1009 >>= fun () ->
+      proto_error "frame payload too big"
     else if Frame.Opcode.is_ctrl opcode && payload_len > 125 then
       close_with_code mode buf oc 1002 >>= fun () ->
       proto_error "control frame too big"
@@ -315,11 +321,11 @@ module Make (IO : Cohttp.S.IO) = struct
             let frame = Frame.of_bytes ~opcode ~extension ~final payload in
             return frame)
 
-  let make_read_frame ?(buf = Buffer.create 128) ~mode ic oc () =
+  let make_read_frame ?max_len ?(buf = Buffer.create 128) ~mode ic oc () =
     Buffer.clear buf;
     read_exactly ic 2 buf >>= function
     | None -> raise End_of_file
-    | Some hdr -> read_frame ic oc buf mode hdr
+    | Some hdr -> read_frame ?max_len ic oc buf mode hdr
 
   module Request = Cohttp.Request.Make (IO)
   module Response = Cohttp.Response.Make (IO)
@@ -337,9 +343,9 @@ module Make (IO : Cohttp.S.IO) = struct
 
     let source { endp; _ } = endp
 
-    let create ?read_buf ?(write_buf = Buffer.create 128) http_request endp ic
+    let create ?max_len ?read_buf ?(write_buf = Buffer.create 128) http_request endp ic
         oc =
-      let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
+      let read_frame = make_read_frame ?max_len ?buf:read_buf ~mode:Server ic oc in
       {
         buffer = write_buf;
         endp;

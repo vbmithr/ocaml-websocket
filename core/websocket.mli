@@ -84,6 +84,7 @@ module type S = sig
   type mode = Client of (int -> string) | Server
 
   val make_read_frame :
+    ?max_len:int ->
     ?buf:Buffer.t -> mode:mode -> IO.ic -> IO.oc -> unit -> Frame.t IO.t
 
   val write_frame_to_buf : mode:mode -> Buffer.t -> Frame.t -> unit
@@ -106,6 +107,7 @@ module type S = sig
     type t
 
     val create :
+      ?max_len:int ->
       ?read_buf:Buffer.t ->
       ?write_buf:Buffer.t ->
       Cohttp.Request.t ->
