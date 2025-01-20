@@ -364,8 +364,10 @@ module Make (IO : Cohttp.S.IO) = struct
       t.read_frame () >>= fun fr ->
       match fr.Frame.opcode with
       | Frame.Opcode.Ping ->
-          send t @@ Frame.create ~opcode:Frame.Opcode.Pong () >>= fun () ->
-          return fr
+          (* Ping frames must be answered by pong frame with the same content. *)
+          send t @@
+          Frame.create ~opcode:Frame.Opcode.Pong ~content:fr.content ()
+          >>= fun () -> return fr
       | Frame.Opcode.Close ->
           (* Immediately echo and pass this last message to the user *)
           (if String.length fr.Frame.content >= 2 then

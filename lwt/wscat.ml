@@ -12,8 +12,8 @@ let client uri =
   let close_sent = ref false in
   let rec react () =
     Websocket_lwt_unix.read conn >>= function
-    | { Frame.opcode = Ping; _ } ->
-        write conn (Frame.create ~opcode:Pong ()) >>= react
+    | { Frame.opcode = Ping; content; _ } ->
+        write conn (Frame.create ~opcode:Pong ~content ()) >>= react
     | { opcode = Close; content; _ } ->
         (* Immediately echo and pass this last message to the user *)
         (if !close_sent then Lwt.return_unit
