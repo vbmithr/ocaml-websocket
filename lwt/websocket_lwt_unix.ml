@@ -101,11 +101,12 @@ let write { write_frame; _ } frame = write_frame frame
 let close_transport { oc; _ } = Lwt_io.close oc
 
 let connect ?(extra_headers = Cohttp.Header.init ())
+    ?max_frame_length
     ?(random_string = Websocket.Rng.init ())
     ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ?buf client url =
   let nonce = Base64.encode_exn (random_string 16) in
   connect ctx client url nonce extra_headers >|= fun (ic, oc) ->
-  let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
+  let read_frame = make_read_frame ?max_len:max_frame_length ?buf ~mode:(Client random_string) ic oc in
   let read_frame () =
     Lwt.catch read_frame (fun exn ->
         Lwt.async (fun () -> Lwt_io.close ic);
@@ -135,7 +136,7 @@ let write_failed_response oc =
   let open Response in
   write ~flush:true (fun writer -> write_body writer body) response oc
 
-let server_fun ?read_buf ?write_buf check_request flow ic oc react =
+let server_fun ?max_len ?read_buf ?write_buf check_request flow ic oc react =
   let read = function
     | `Ok r -> Lwt.return r
     | `Eof ->
@@ -181,11 +182,11 @@ let server_fun ?read_buf ?write_buf check_request flow ic oc react =
   in
   Response.write (fun _writer -> Lwt.return_unit) response oc >>= fun () ->
   let client =
-    Connected_client.create ?read_buf ?write_buf request flow ic oc
+    Connected_client.create ?max_len ?read_buf ?write_buf request flow ic oc
   in
   react client
 
-let establish_server ?read_buf ?write_buf ?timeout ?stop
+let establish_server ?max_frame_length ?read_buf ?write_buf ?timeout ?stop
     ?(on_exn = fun exn -> !Lwt.async_exception_hook exn)
     ?(check_request = check_origin_with_host)
     ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ~mode react =
@@ -194,7 +195,8 @@ let establish_server ?read_buf ?write_buf ?timeout ?stop
       set_tcp_nodelay flow;
       Lwt.catch
         (fun () ->
-          server_fun ?read_buf ?write_buf check_request
+          server_fun ?max_len:max_frame_length ?read_buf ?write_buf
+            check_request
             (Conduit_lwt_unix.endp_of_flow flow)
             ic oc react)
         (function
@@ -211,9 +213,11 @@ let mk_frame_stream recv =
   in
   Lwt_stream.from f
 
-let establish_standard_server ?read_buf ?write_buf ?timeout ?stop ?on_exn
+let establish_standard_server ?max_frame_length ?read_buf ?write_buf ?timeout
+    ?stop ?on_exn
     ?check_request ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ~mode react
     =
   let f client = react (Connected_client.make_standard client) in
-  establish_server ?read_buf ?write_buf ?timeout ?stop ?on_exn ?check_request
+  establish_server ?max_frame_length ?read_buf ?write_buf ?timeout ?stop
+    ?on_exn ?check_request
     ~ctx ~mode f

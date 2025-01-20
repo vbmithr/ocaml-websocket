@@ -55,13 +55,14 @@ val server :
   ?name:string ->
   ?check_request:(Cohttp.Request.t -> bool Deferred.t) ->
   ?select_protocol:(string -> string option) ->
+  ?max_frame_length:int ->
   reader:Reader.t ->
   writer:Writer.t ->
   app_to_ws:Frame.t Pipe.Reader.t ->
   ws_to_app:Frame.t Pipe.Writer.t ->
   unit ->
   unit Deferred.Or_error.t
-(** [server ?request_cb reader writer app_to_ws
+(** [server ?request_cb ?max_frame_length reader writer app_to_ws
     ws_to_app ()] returns a thread that expects a websocket client
     connected to [reader]/[writer] and, after performing the
     handshake, will resp. read outgoing frames from [app_to_ws] and
@@ -71,17 +72,19 @@ val server :
     reception of the client HTTP request, [request_cb] will be called
     with the request as its argument. If [request_cb] returns true,
     the connection will proceed, otherwise, the result is immediately
-    determined to [Error Exit]. *)
+    determined to [Error Exit]. If [max_frame_length] is specified and
+    the server receives a frame above this size, the connection is closed. *)
 
 val upgrade_connection :
   ?select_protocol:(string -> string option) ->
   ?ping_interval:Core.Time_ns.Span.t ->
+  ?max_frame_length:int ->
   app_to_ws:Frame.t Pipe.Reader.t ->
   ws_to_app:Frame.t Pipe.Writer.t ->
   f:(unit -> unit Deferred.t) ->
   Cohttp.Request.t ->
   Cohttp.Response.t * (Reader.t -> Writer.t -> unit Deferred.t)
-(** [upgrade_connection ?select_protocol ?ping_interval
+(** [upgrade_connection ?select_protocol ?ping_interval ?max_frame_length
     app_to_ws ws_to_app f request] returns a {!Cohttp_async.Server.response_action}.
 
     Just wrap the return value of this function with [`Expert].
