@@ -61,7 +61,9 @@ module Frame : sig
     unit ->
     t
 
-  val close : int -> t
+  (** [close ?reason code] returns a close frame with status [code]
+      and an optional [reason]. *)
+  val close : ?reason:string -> int -> t
 end
 
 val check_origin :
