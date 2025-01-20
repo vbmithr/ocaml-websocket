@@ -29,12 +29,12 @@ let send_frames stream oc =
   in
   Lwt_stream.iter_s send_frame stream
 
-let read_frames ic oc handler_fn =
-  let read_frame = Lwt_IO.make_read_frame ~mode:Server ic oc in
+let read_frames ?max_len ic oc handler_fn =
+  let read_frame = Lwt_IO.make_read_frame ?max_len ~mode:Server ic oc in
   let rec inner () = read_frame () >>= Lwt.wrap1 handler_fn >>= inner in
   inner ()
 
-let upgrade_connection request incoming_handler =
+let upgrade_connection ?max_frame_length request incoming_handler =
   let headers = Cohttp.Request.headers request in
   (match Cohttp.Header.get headers "sec-websocket-key" with
   | None ->
@@ -61,7 +61,7 @@ let upgrade_connection request incoming_handler =
       [
         (* input: data from the client is read from the input channel
          * of the tcp connection; pass it to handler function *)
-        read_frames ic oc incoming_handler;
+        read_frames ?max_len:max_frame_length ic oc incoming_handler;
         (* output: data for the client is written to the output
          * channel of the tcp connection *)
         send_frames frames_out_stream oc;

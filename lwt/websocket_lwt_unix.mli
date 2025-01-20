@@ -39,6 +39,7 @@ val close_transport : conn -> unit Lwt.t
 
 val connect :
   ?extra_headers:Cohttp.Header.t ->
+  ?max_frame_length:int ->
   ?random_string:(int -> string) ->
   ?ctx:Conduit_lwt_unix.ctx ->
   ?buf:Buffer.t ->
@@ -47,6 +48,7 @@ val connect :
   conn Lwt.t
 
 val establish_server :
+  ?max_frame_length:int ->
   ?read_buf:Buffer.t ->
   ?write_buf:Buffer.t ->
   ?timeout:int ->
@@ -71,6 +73,7 @@ val mk_frame_stream :
     is received, the stream will be closed. *)
 
 val establish_standard_server :
+  ?max_frame_length:int ->
   ?read_buf:Buffer.t ->
   ?write_buf:Buffer.t ->
   ?timeout:int ->
