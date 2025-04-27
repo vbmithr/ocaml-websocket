@@ -37,34 +37,6 @@
   (mirage-crypto-rng (>= 1.0.0))))
 
 (package
- (name websocket-async)
- (synopsis "Websocket library (Async)")
- (description
-"\| The WebSocket Protocol enables two-way communication between a client
-"\| running untrusted code in a controlled environment to a remote host
-"\| that has opted-in to communications from that code.
-"\|
-"\| The security model used for this is the origin-based security model
-"\| commonly used by web browsers. The protocol consists of an opening
-"\| handshake followed by basic message framing, layered over TCP.
-"\|
-"\| The goal of this technology is to provide a mechanism for
-"\| browser-based applications that need two-way communication with
-"\| servers that does not rely on opening multiple HTTP connections (e.g.,
-"\| using XMLHttpRequest or <iframe>s and long polling).
-)
- (tags (org:mirage org:xapi-project))
- (depends
-  (ocaml (>= 4.06.0))
-  (websocket (= :version))
-  (core (>= v0.15.0))
-  (core_unix (>= v0.15.0))
-  (async (>= v0.15.0))
-  (cohttp-async (>= 5.0.0))
-  (logs-async (>= 1.1))
-  (logs-async-reporter (>= 1.0))))
-
-(package
  (name websocket-lwt-unix)
  (synopsis "Websocket library (Lwt)")
  (description
