@@ -2,33 +2,34 @@ open Lwt.Infix
 open Websocket
 open Websocket_lwt_unix
 
-let section = Lwt_log.Section.make "reynir"
+let src = Logs.Src.create "reynir"
+
+module Lo = (val Logs.src_log src : Logs.LOG)
 
 let handler id client =
   incr id;
   let id = !id in
   let send = Connected_client.send client in
-  Lwt_log.ign_info_f ~section "New connection (id = %d)" id;
+  Lo.info (fun m -> m "New connection (id = %d)" id);
   Lwt.async (fun () ->
       Lwt_unix.sleep 1.0 >>= fun () ->
       send @@ Frame.create ~content:"Delayed message" ());
   let rec recv_forever () =
     let open Frame in
     let react fr =
-      Lwt_log.debug_f ~section "<- %s" (Frame.show fr) >>= fun () ->
+      Lo.debug (fun m -> m "<- %s" (Frame.show fr));
       match fr.opcode with
       | Opcode.Ping ->
           send @@ Frame.create ~opcode:Opcode.Pong ~content:fr.content ()
       | Opcode.Close ->
-          Lwt_log.info_f ~section "Client %d sent a close frame" id
-          >>= fun () ->
+          Lo.info (fun m -> m "Client %d sent a close frame" id);
           (* Immediately echo and pass this last message to the user *)
           (if String.length fr.content >= 2 then
-           send
-           @@ Frame.create ~opcode:Opcode.Close
-                ~content:(String.sub fr.content 0 2)
-                ()
-          else send @@ Frame.close 1000)
+             send
+             @@ Frame.create ~opcode:Opcode.Close
+                  ~content:(String.sub fr.content 0 2)
+                  ()
+           else send @@ Frame.close 1000)
           >>= fun () -> Lwt.fail Exit
       | Opcode.Pong -> Lwt.return_unit
       | Opcode.Text | Opcode.Binary -> send @@ Frame.create ~content:"OK" ()
@@ -37,7 +38,7 @@ let handler id client =
     Connected_client.recv client >>= react >>= recv_forever
   in
   Lwt.catch recv_forever (fun exn ->
-      Lwt_log.info_f ~section "Connection to client %d lost" id >>= fun () ->
+      Lo.info (fun m -> m "Connection to client %d lost" id);
       Lwt.fail exn)
 
 let main uri =
@@ -53,11 +54,11 @@ let () =
     Arg.align
       [
         ( "-v",
-          Arg.String (fun s -> Lwt_log.(add_rule s Info)),
-          "<section> Put <section> to Info level" );
+          Arg.String (fun _ -> Logs.set_level ~all:true (Some Info)),
+          " Info level" );
         ( "-vv",
-          Arg.String (fun s -> Lwt_log.(add_rule s Debug)),
-          "<section> Put <section> to Debug level" );
+          Arg.String (fun _ -> Logs.set_level ~all:true (Some Info)),
+          " Debug level" );
       ]
   in
   let anon_fun s = uri := s in

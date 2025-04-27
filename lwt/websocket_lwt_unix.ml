@@ -21,7 +21,9 @@ open Lwt.Infix
 open Cohttp_lwt_unix.Private
 include Websocket.Make (IO)
 
-let section = Lwt_log.Section.make "websocket_lwt_unix"
+let src = Logs.Src.create "websocket_lwt_unix"
+
+module Lo = (val Logs.src_log src : Logs.LOG)
 
 exception HTTP_Error of string
 
@@ -89,7 +91,7 @@ let connect ctx client url nonce extra_headers =
     (fun () -> drain_handshake req ic oc nonce)
     (fun exn -> Input_channel.close ic >>= fun () -> Lwt.fail exn)
   >>= fun () ->
-  Lwt_log.info_f ~section "Connected to %s" (Uri.to_string url) >>= fun () ->
+  Lo.info (fun m -> m "Connected to %a" Uri.pp_hum url);
   Lwt.return (ic, oc)
 
 type conn = {
@@ -142,11 +144,11 @@ let server_fun ?read_buf ?write_buf check_request ic oc react =
     | `Ok r -> Lwt.return r
     | `Eof ->
         (* Remote endpoint closed connection. No further action necessary here. *)
-        Lwt_log.info ~section "Remote endpoint closed connection" >>= fun () ->
+        Lo.info (fun m -> m "Remote endpoint closed connection");
         Lwt.fail End_of_file
     | `Invalid reason ->
-        Lwt_log.info_f ~section "Invalid input from remote endpoint: %s" reason
-        >>= fun () -> Lwt.fail @@ HTTP_Error reason
+        Lo.info (fun m -> m "Invalid input from remote endpoint: %s" reason);
+        Lwt.fail @@ HTTP_Error reason
   in
   Request.read ic >>= read >>= fun request ->
   let meth = Cohttp.Request.meth request in

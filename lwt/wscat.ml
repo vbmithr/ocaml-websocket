@@ -1,7 +1,9 @@
 open Lwt.Infix
 open Websocket_lwt_unix
 
-let section = Lwt_log.Section.make "wscat"
+let src = Logs.Src.create "wscat"
+
+module Lo = (val Logs.src_log src : Logs.LOG)
 
 let client uri =
   let open Websocket in
@@ -17,10 +19,10 @@ let client uri =
     | { opcode = Close; content; _ } ->
         (* Immediately echo and pass this last message to the user *)
         (if !close_sent then Lwt.return_unit
-        else if String.length content >= 2 then
-          write conn
-            (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
-        else write conn (Frame.close 1000))
+         else if String.length content >= 2 then
+           write conn
+             (Frame.create ~opcode:Close ~content:(String.sub content 0 2) ())
+         else write conn (Frame.close 1000))
         >>= fun () -> Websocket_lwt_unix.close_transport conn
     | { opcode = Pong; _ } -> react ()
     | { opcode = Text; content; _ } | { opcode = Binary; content; _ } ->
@@ -30,7 +32,7 @@ let client uri =
   let rec pushf () =
     Lwt_io.(read_line_opt stdin) >>= function
     | None ->
-        Lwt_log.debug ~section "Got EOF. Sending a close frame." >>= fun () ->
+        Lo.debug (fun m -> m "Got EOF. Sending a close frame");
         write conn (Frame.create ~opcode:Close ()) >>= fun () ->
         close_sent := true;
         pushf ()
@@ -41,8 +43,7 @@ let client uri =
 let rec react client client_id =
   let open Websocket in
   Connected_client.recv client >>= fun fr ->
-  Lwt_log.debug_f ~section "Client %d: %S" client_id Frame.(show fr)
-  >>= fun () ->
+  Lo.debug (fun m -> m "Client %d: %S" client_id Frame.(show fr));
   match fr.opcode with
   | Frame.Opcode.Ping ->
       Connected_client.send client
@@ -65,21 +66,21 @@ let server uri =
   let echo_fun client =
     incr id;
     let id = !id in
-    Lwt_log.info_f ~section "Connection from client id %d" id >>= fun () ->
+    Lo.info (fun m -> m "Connection from client id %d" id);
     Lwt.catch
       (fun () -> react client id)
       (fun exn ->
-        Lwt_log.error_f ~section ~exn "Client %d error" id >>= fun () ->
+        Lo.err (fun m -> m "Client %d error" id);
         Lwt.fail exn)
   in
   Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
   let open Conduit_lwt_unix in
   let endp_str = endp |> Conduit.sexp_of_endp |> Sexplib.Sexp.to_string_hum in
-  Lwt_log.info_f ~section "endp = %s" endp_str >>= fun () ->
+  Lo.info (fun m -> m "endp = %s" endp_str);
   let ctx = Lazy.force default_ctx in
   endp_to_server ~ctx endp >>= fun server ->
   let server_str = server |> sexp_of_server |> Sexplib.Sexp.to_string_hum in
-  Lwt_log.info_f ~section "server = %s" server_str >>= fun () ->
+  Lo.info (fun m -> m "server = %s" server_str);
   establish_server ~ctx ~mode:server echo_fun
 
 let main is_server uri =
@@ -89,8 +90,8 @@ let main is_server uri =
   else client uri
 
 let apply_loglevel = function
-  | 2 -> Lwt_log.(add_rule "*" Info)
-  | 3 -> Lwt_log.(add_rule "*" Debug)
+  | 2 -> Logs.set_level ~all:true (Some Info)
+  | 3 -> Logs.set_level ~all:true (Some Debug)
   | _ -> ()
 
 let () =
