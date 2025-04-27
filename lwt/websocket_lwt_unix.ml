@@ -18,7 +18,8 @@
 open Astring
 open Websocket
 open Lwt.Infix
-include Websocket.Make (Cohttp_lwt_unix.IO)
+open Cohttp_lwt_unix.Private
+include Websocket.Make (IO)
 
 let section = Lwt_log.Section.make "websocket_lwt_unix"
 
@@ -37,11 +38,11 @@ let fail_unless eq f = if not eq then f () else Lwt.return_unit
 let fail_if eq f = if eq then f () else Lwt.return_unit
 
 let drain_handshake req ic oc nonce =
-  Request.write (fun _writer -> Lwt.return ()) req oc >>= fun () ->
-  (Response.read ic >>= function
-   | `Ok r -> Lwt.return r
-   | `Eof -> Lwt.fail End_of_file
-   | `Invalid s -> Lwt.fail @@ Failure s)
+  Request.write ~flush:true (fun _writer -> Lwt.return ()) req oc >>= fun () ->
+  ( Response.read ic >>= function
+    | `Ok r -> Lwt.return r
+    | `Eof -> Lwt.fail End_of_file
+    | `Invalid s -> Lwt.fail @@ Failure s )
   >>= fun response ->
   let open Cohttp in
   let status = Response.status response in
@@ -82,10 +83,11 @@ let connect ctx client url nonce extra_headers =
   in
   let req = Request.make ~headers url in
   Conduit_lwt_unix.connect ~ctx client >>= fun (flow, ic, oc) ->
+  let ic = Input_channel.create ic in
   set_tcp_nodelay flow;
   Lwt.catch
     (fun () -> drain_handshake req ic oc nonce)
-    (fun exn -> Lwt_io.close ic >>= fun () -> Lwt.fail exn)
+    (fun exn -> Input_channel.close ic >>= fun () -> Lwt.fail exn)
   >>= fun () ->
   Lwt_log.info_f ~section "Connected to %s" (Uri.to_string url) >>= fun () ->
   Lwt.return (ic, oc)
@@ -108,7 +110,7 @@ let connect ?(extra_headers = Cohttp.Header.init ())
   let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
   let read_frame () =
     Lwt.catch read_frame (fun exn ->
-        Lwt.async (fun () -> Lwt_io.close ic);
+        Lwt.async (fun () -> Input_channel.close ic);
         Lwt.fail exn)
   in
   let buf = Buffer.create 128 in
@@ -135,7 +137,7 @@ let write_failed_response oc =
   let open Response in
   write ~flush:true (fun writer -> write_body writer body) response oc
 
-let server_fun ?read_buf ?write_buf check_request flow ic oc react =
+let server_fun ?read_buf ?write_buf check_request ic oc react =
   let read = function
     | `Ok r -> Lwt.return r
     | `Eof ->
@@ -179,10 +181,9 @@ let server_fun ?read_buf ?write_buf check_request flow ic oc react =
     Cohttp.Response.make ~status:`Switching_protocols
       ~encoding:Cohttp.Transfer.Unknown ~headers:response_headers ()
   in
-  Response.write (fun _writer -> Lwt.return_unit) response oc >>= fun () ->
-  let client =
-    Connected_client.create ?read_buf ?write_buf request flow ic oc
-  in
+  Response.write ~flush:true (fun _writer -> Lwt.return_unit) response oc
+  >>= fun () ->
+  let client = Connected_client.create ?read_buf ?write_buf request ic oc in
   react client
 
 let establish_server ?read_buf ?write_buf ?timeout ?stop
@@ -191,12 +192,10 @@ let establish_server ?read_buf ?write_buf ?timeout ?stop
     ?(ctx = Lazy.force Conduit_lwt_unix.default_ctx) ~mode react =
   let module C = Cohttp in
   Conduit_lwt_unix.serve ~on_exn ?timeout ?stop ~ctx ~mode (fun flow ic oc ->
+      let ic = Input_channel.create ic in
       set_tcp_nodelay flow;
       Lwt.catch
-        (fun () ->
-          server_fun ?read_buf ?write_buf check_request
-            (Conduit_lwt_unix.endp_of_flow flow)
-            ic oc react)
+        (fun () -> server_fun ?read_buf ?write_buf check_request ic oc react)
         (function
           | End_of_file -> Lwt.return_unit
           | HTTP_Error _ -> Lwt.return_unit

@@ -180,7 +180,6 @@ module type S = sig
       ?read_buf:Buffer.t ->
       ?write_buf:Buffer.t ->
       Cohttp.Request.t ->
-      Conduit.endp ->
       IO.ic ->
       IO.oc ->
       t
@@ -190,7 +189,6 @@ module type S = sig
     val send_multiple : t -> Frame.t list -> unit IO.t
     val recv : t -> Frame.t IO.t
     val http_request : t -> Cohttp.Request.t
-    val source : t -> Conduit.endp
   end
 end
 
@@ -296,11 +294,11 @@ module Make (IO : Cohttp.S.IO) = struct
       proto_error "control frame too big"
     else
       (if frame_masked then (
-       Buffer.clear buf;
-       read_exactly ic 4 buf >>= function
-       | None -> proto_error "could not read mask"
-       | Some mask -> return mask)
-      else return String.empty)
+         Buffer.clear buf;
+         read_exactly ic 4 buf >>= function
+         | None -> proto_error "could not read mask"
+         | Some mask -> return mask)
+       else return String.empty)
       >>= fun mask ->
       if payload_len = 0 then
         return @@ Frame.create ~opcode ~extension ~final ()
@@ -321,13 +319,12 @@ module Make (IO : Cohttp.S.IO) = struct
     | None -> raise End_of_file
     | Some hdr -> read_frame ic oc buf mode hdr
 
-  module Request = Cohttp.Request.Make (IO)
-  module Response = Cohttp.Response.Make (IO)
+  module Request = Cohttp.Request.Private.Make (IO)
+  module Response = Cohttp.Response.Private.Make (IO)
 
   module Connected_client = struct
     type t = {
       buffer : Buffer.t;
-      endp : Conduit.endp;
       ic : Request.IO.ic;
       oc : Request.IO.oc;
       http_request : Cohttp.Request.t;
@@ -335,14 +332,10 @@ module Make (IO : Cohttp.S.IO) = struct
       read_frame : unit -> Frame.t IO.t;
     }
 
-    let source { endp; _ } = endp
-
-    let create ?read_buf ?(write_buf = Buffer.create 128) http_request endp ic
-        oc =
+    let create ?read_buf ?(write_buf = Buffer.create 128) http_request ic oc =
       let read_frame = make_read_frame ?buf:read_buf ~mode:Server ic oc in
       {
         buffer = write_buf;
-        endp;
         ic;
         oc;
         http_request;
@@ -369,13 +362,13 @@ module Make (IO : Cohttp.S.IO) = struct
       | Frame.Opcode.Close ->
           (* Immediately echo and pass this last message to the user *)
           (if String.length fr.Frame.content >= 2 then
-           send t
-           @@ Frame.create ~opcode:Frame.Opcode.Close
-                ~content:
-                  String.(
-                    sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)
-                ()
-          else send t @@ Frame.close 1000)
+             send t
+             @@ Frame.create ~opcode:Frame.Opcode.Close
+                  ~content:
+                    String.(
+                      sub ~start:0 ~stop:2 fr.Frame.content |> Sub.to_string)
+                  ()
+           else send t @@ Frame.close 1000)
           >>= fun () -> return fr
       | _ -> return fr
 

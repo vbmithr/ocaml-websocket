@@ -23,8 +23,8 @@ exception Protocol_error of string
 
 module Rng : sig
   val init : unit -> int -> string
-  (** [init ?state ()] is a function that returns a string of random
-      bytes of length equal to its argument. *)
+  (** [init ?state ()] is a function that returns a string of random bytes of
+      length equal to its argument. *)
 end
 
 module Frame : sig
@@ -66,12 +66,10 @@ end
 
 val check_origin :
   ?origin_mandatory:bool -> hosts:string list -> Cohttp.Request.t -> bool
-(** [check_origin ~hosts req] will return [true] if the origin header
-    exists and matches one of the provided hostnames.
-    If origin header is not present, return [not origin_mandatory].
-    Default value of [origin_mandatory] is false.
-    If origin header is present but does not contain a hostname,
-    return [false].
+(** [check_origin ~hosts req] will return [true] if the origin header exists and
+    matches one of the provided hostnames. If origin header is not present,
+    return [not origin_mandatory]. Default value of [origin_mandatory] is false.
+    If origin header is present but does not contain a hostname, return [false].
     Hostnames in [hosts] are (ascii-)lowercased when compared.*)
 
 val check_origin_with_host : Cohttp.Request.t -> bool
@@ -109,7 +107,6 @@ module type S = sig
       ?read_buf:Buffer.t ->
       ?write_buf:Buffer.t ->
       Cohttp.Request.t ->
-      Conduit.endp ->
       IO.ic ->
       IO.oc ->
       t
@@ -119,7 +116,6 @@ module type S = sig
     val send_multiple : t -> Frame.t list -> unit IO.t
     val recv : t -> Frame.t IO.t
     val http_request : t -> Cohttp.Request.t
-    val source : t -> Conduit.endp
   end
 end
 

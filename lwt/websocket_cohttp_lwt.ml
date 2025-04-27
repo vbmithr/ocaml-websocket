@@ -18,7 +18,7 @@
 
 open Lwt.Infix
 open Websocket
-module Lwt_IO = Websocket.Make (Cohttp_lwt_unix.IO)
+module Lwt_IO = Websocket.Make (Cohttp_lwt_unix.Private.IO)
 
 let send_frames stream oc =
   let buf = Buffer.create 128 in
@@ -53,7 +53,7 @@ let upgrade_connection request incoming_handler =
   in
   let resp =
     Cohttp.Response.make ~status:`Switching_protocols
-      ~encoding:Cohttp.Transfer.Unknown ~headers:response_headers ~flush:true ()
+      ~encoding:Cohttp.Transfer.Unknown ~headers:response_headers ()
   in
   let frames_out_stream, frames_out_fn = Lwt_stream.create () in
   let f ic oc =

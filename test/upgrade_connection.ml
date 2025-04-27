@@ -3,6 +3,8 @@ open Websocket
 
 let src = Logs.Src.create "websocket.upgrade_connection"
 
+module Lo = (val Logs.src_log src : Logs.LOG)
+
 let lwt_reporter () =
   let buf_fmt ~like =
     let b = Buffer.create 512 in
@@ -33,11 +35,9 @@ let lwt_reporter () =
   in
   { Logs.report }
 
-let handler (_, conn) req body =
+let handler (_, _conn) req body =
   let open Frame in
-  Logs_lwt.app ~src (fun m ->
-      m "[CONN] %a" Sexplib.Sexp.pp (Cohttp.Connection.sexp_of_t conn))
-  >>= fun _ ->
+  Lo.app (fun m -> m "[CONN]");
   let uri = Cohttp.Request.uri req in
   match Uri.path uri with
   | "/" ->
@@ -98,11 +98,7 @@ let handler (_, conn) req body =
       >|= fun resp -> `Response resp
 
 let start_server ?tls port =
-  let conn_closed (_, c) =
-    Logs.app ~src (fun m ->
-        m "[SERV] connection %a closed" Sexplib.Sexp.pp
-          (Cohttp.Connection.sexp_of_t c))
-  in
+  let conn_closed (_, _c) = Lo.app (fun m -> m "[SERV] connection closed") in
   Logs_lwt.app ~src (fun m -> m "[SERV] Listening for HTTP on port %d" port)
   >>= fun () ->
   let mode =
