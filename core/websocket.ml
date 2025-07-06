@@ -93,8 +93,12 @@ module Frame = struct
     let content = Bytes.to_string content in
     create ?opcode ?extension ?final ~content ()
 
-  let close code =
-    let content = Bytes.create 2 in
+  let close ?reason code =
+    let content = match reason with
+    | None -> Bytes.create 2
+    | Some reason -> Bytes.init (String.length reason + 2) @@ fun i ->
+        if i <= 1 then '\000' else reason.[i - 2]
+    in
     EndianBytes.BigEndian.set_int16 content 0 code;
     of_bytes ~opcode:Opcode.Close content
 end
