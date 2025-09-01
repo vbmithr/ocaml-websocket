@@ -28,6 +28,7 @@ depends: [
   "websocket" {= version}
   "logs" {>= "0.8.0"}
   "cohttp-lwt-unix" {>= "5.0.0"}
+  "sexplib"
   "odoc" {with-doc}
 ]
 build: [
