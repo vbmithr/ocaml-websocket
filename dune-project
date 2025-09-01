@@ -58,4 +58,5 @@
   (ocaml (>= 4.06.0))
   (websocket (= :version))
   (logs (>= 0.8.0))
-  (cohttp-lwt-unix (>= 5.0.0))))
+  (cohttp-lwt-unix (>= 5.0.0))
+  sexplib))
