@@ -30,6 +30,9 @@ exception HTTP_Error of string
 let http_error msg = Lwt.fail (HTTP_Error msg)
 let protocol_error msg = Lwt.fail (Protocol_error msg)
 
+let swallow_exception action exn =
+  Lo.debug (fun m -> m "error %s: %s" action (Printexc.to_string exn))
+
 let set_tcp_nodelay flow =
   let open Conduit_lwt_unix in
   match flow with
@@ -61,8 +64,8 @@ let drain_handshake req ic oc nonce =
       protocol_error "wrong status")
   >>= fun () ->
   (match Header.get headers "upgrade" with
-  | Some a when String.Ascii.lowercase a = "websocket" -> Lwt.return_unit
-  | _ -> protocol_error "wrong upgrade")
+    | Some a when String.Ascii.lowercase a = "websocket" -> Lwt.return_unit
+    | _ -> protocol_error "wrong upgrade")
   >>= fun () ->
   fail_unless (upgrade_present headers) (fun () ->
       protocol_error "upgrade header not present")
@@ -112,7 +115,12 @@ let connect ?(extra_headers = Cohttp.Header.init ())
   let read_frame = make_read_frame ?buf ~mode:(Client random_string) ic oc in
   let read_frame () =
     Lwt.catch read_frame (fun exn ->
-        Lwt.async (fun () -> Input_channel.close ic);
+        (* We are already reporting an exception for the failed read. In case
+           this best-effort close fails, do not let an asynchronous exception
+           escape, just log it. *)
+        Lwt.dont_wait
+          (fun () -> Input_channel.close ic)
+          (swallow_exception "closing connection");
         Lwt.fail exn)
   in
   let buf = Buffer.create 128 in
@@ -124,7 +132,12 @@ let connect ?(extra_headers = Cohttp.Header.init ())
       (fun () ->
         Lwt_io.write oc (Buffer.contents buf) >>= fun () -> Lwt_io.flush oc)
       (fun exn ->
-        Lwt.async (fun () -> Lwt_io.close oc);
+        (* We are already reporting an exception for the failed write. In case
+           this best-effort close fails, do not let an asynchronous exception
+           escape, just log it. *)
+        Lwt.dont_wait
+          (fun () -> Lwt_io.close oc)
+          (swallow_exception "closing channel");
         Lwt.fail exn)
   in
   { read_frame; write_frame; oc }
