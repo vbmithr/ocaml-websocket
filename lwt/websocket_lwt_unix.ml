@@ -194,7 +194,7 @@ let server_fun ?read_buf ?write_buf check_request ic oc react =
   in
   let response =
     Cohttp.Response.make ~status:`Switching_protocols
-      ~encoding:Cohttp.Transfer.Unknown ~headers:response_headers ()
+      ~encoding:(Cohttp.Transfer.Fixed 0L) ~headers:response_headers ()
   in
   Response.write ~flush:true (fun _writer -> Lwt.return_unit) response oc
   >>= fun () ->
